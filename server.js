@@ -42,7 +42,7 @@ const app = express();
    GLOBAL CONFIG
 ---------------------------------------------------------- */
 const PORT = process.env.PORT || 5000;
-const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
+const CLIENT_URL = process.env.CLIENT_URL;
 const isProd = process.env.NODE_ENV === "production";
 
 /* Trust proxy for Render/Vercel/Nginx */
