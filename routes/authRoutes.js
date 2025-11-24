@@ -6,7 +6,9 @@ const router = Router();
 /* -------------------------------------------------------
    ENV CONFIG
 -------------------------------------------------------- */
-const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
+const CLIENT_URL =
+  process.env.CLIENT_URL || "http://localhost:5173";
+
 const LOGIN_URL = `${CLIENT_URL}/login`;
 const SET_USERNAME_URL = `${CLIENT_URL}/set-username`;
 const HOME_URL = `${CLIENT_URL}/`;
@@ -16,7 +18,9 @@ const HOME_URL = `${CLIENT_URL}/`;
 -------------------------------------------------------- */
 router.get(
   "/google",
-  passport.authenticate("google", { scope: ["profile", "email"] })
+  passport.authenticate("google", {
+    scope: ["profile", "email"],
+  })
 );
 
 router.get(
@@ -37,7 +41,9 @@ router.get(
 -------------------------------------------------------- */
 router.get(
   "/github",
-  passport.authenticate("github", { scope: ["user:email"] })
+  passport.authenticate("github", {
+    scope: ["user:email"],
+  })
 );
 
 router.get(
@@ -71,7 +77,7 @@ router.get("/user", (req, res) => {
 });
 
 /* -------------------------------------------------------
-   4. LOGOUT — FULLY FIXED VERSION
+   4. LOGOUT (Fully Production-Ready)
 -------------------------------------------------------- */
 router.get("/logout", (req, res) => {
   req.logout((err) => {
@@ -79,7 +85,6 @@ router.get("/logout", (req, res) => {
       return res.redirect(`${LOGIN_URL}?error=logout_failed`);
     }
 
-    // remove existing session
     req.session.destroy(() => {
       res.clearCookie("connect.sid", {
         httpOnly: true,
