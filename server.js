@@ -43,9 +43,8 @@ const app = express();
 ---------------------------------------------------------- */
 const PORT = process.env.PORT || 5000;
 const CLIENT_URL = process.env.CLIENT_URL;
-const isProd = process.env.NODE_ENV === "production";
 
-/* Trust proxy (REQUIRED for Render OAuth cookies) */
+/* REQUIRED for Render / Vercel */
 app.set("trust proxy", 1);
 
 /* ----------------------------------------------------------
@@ -99,7 +98,7 @@ app.use(
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* ----------------------------------------------------------
-   SESSION CONFIG (OAuth cookie fix)
+   SESSION CONFIG (Render/Vercel OAuth fix)
 ---------------------------------------------------------- */
 app.use(
   session({
@@ -109,8 +108,8 @@ app.use(
     proxy: true,
     cookie: {
       httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? "none" : "lax",
+      secure: true,        // REQUIRED FOR RENDER + VERCEL
+      sameSite: "none",    // REQUIRED FOR THIRD-PARTY OAUTH
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
   })
@@ -143,13 +142,20 @@ app.use("/channel", channelRoutes);
 app.use("/github", githubRoutes);
 
 /* ----------------------------------------------------------
-   SOCKET.IO SERVER
+   SOCKET.IO SERVER (full CORS fix)
 ---------------------------------------------------------- */
 const httpServer = http.createServer(app);
 
 const io = new IOServer(httpServer, {
   cors: {
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.log("❌ Socket.IO CORS blocked:", origin);
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   },
   pingTimeout: 60000,
