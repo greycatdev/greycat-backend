@@ -5,15 +5,10 @@ import Project from "../models/Project.js";
 const router = express.Router();
 
 /* --------------------------------------------------------
-   1️⃣ FETCH PUBLIC GITHUB REPOS (NO CACHE, ALWAYS FRESH)
+   1️⃣ FETCH PUBLIC GITHUB REPOS (With Token Support)
 --------------------------------------------------------- */
 router.get("/repos/:username", async (req, res) => {
   try {
-    // Disable ALL caching: browser, Render, Cloudflare, GitHub
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-    res.setHeader("Pragma", "no-cache");
-    res.setHeader("Expires", "0");
-
     const username = req.params.username?.trim().toLowerCase();
 
     if (!username) {
@@ -22,16 +17,18 @@ router.get("/repos/:username", async (req, res) => {
 
     const url = `https://api.github.com/users/${username}/repos?per_page=100&sort=pushed`;
 
-    const { data } = await axios.get(url, {
-      headers: {
-        "User-Agent": "GreyCat-App",
-        Accept: "application/vnd.github+json",
+    // GitHub Token (optional but recommended)
+    const headers = {
+      "User-Agent": "GreyCat-App",
+      Accept: "application/vnd.github+json",
+    };
 
-        // 🔥 Prevent GitHub from returning ETag 304 cached response
-        "Cache-Control": "no-cache",
-        "If-None-Match": "" // Forces GitHub to always send full fresh result
-      },
-    });
+    // Add token only if it exists
+    if (process.env.GITHUB_TOKEN) {
+      headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+    }
+
+    const { data } = await axios.get(url, { headers });
 
     const repos = data.map((repo) => ({
       id: repo.id,
@@ -47,14 +44,17 @@ router.get("/repos/:username", async (req, res) => {
     const status = err.response?.status;
     console.log("GitHub Fetch Error:", status);
 
-    if (status === 404)
+    if (status === 404) {
       return res.json({ success: false, message: "GitHub user not found" });
+    }
 
-    if (status === 403)
+    if (status === 403) {
       return res.json({
         success: false,
-        message: "GitHub rate limit exceeded. Try again later.",
+        message:
+          "GitHub API rate limit exceeded. Add a GitHub token to fix this.",
       });
+    }
 
     return res.json({
       success: false,
@@ -103,7 +103,7 @@ router.post("/import", async (req, res) => {
         description: repo.description || "No description available",
         tech: [repo.language?.trim().toLowerCase() || "unknown"],
         link: repoURL,
-        image: "", // placeholder
+        image: "", // No image
       });
 
       imported.push(project);
