@@ -6,8 +6,7 @@ const router = Router();
 /* -------------------------------------------------------
    ENV CONFIG
 -------------------------------------------------------- */
-const CLIENT_URL =
-  process.env.CLIENT_URL || "http://localhost:5173";
+const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
 
 const LOGIN_URL = `${CLIENT_URL}/login`;
 const SET_USERNAME_URL = `${CLIENT_URL}/set-username`;
@@ -28,11 +27,17 @@ router.get(
   passport.authenticate("google", {
     failureRedirect: LOGIN_URL,
   }),
-  (req, res) => {
-    if (!req.user.username) {
-      return res.redirect(SET_USERNAME_URL);
-    }
-    return res.redirect(HOME_URL);
+  (req, res, next) => {
+    // ⭐ CRITICAL FIX — ensure cookie is saved BEFORE redirect
+    req.session.save((err) => {
+      if (err) return next(err);
+
+      if (!req.user.username) {
+        return res.redirect(SET_USERNAME_URL);
+      }
+
+      return res.redirect(HOME_URL);
+    });
   }
 );
 
@@ -51,11 +56,17 @@ router.get(
   passport.authenticate("github", {
     failureRedirect: LOGIN_URL,
   }),
-  (req, res) => {
-    if (!req.user.username) {
-      return res.redirect(SET_USERNAME_URL);
-    }
-    return res.redirect(HOME_URL);
+  (req, res, next) => {
+    // ⭐ CRITICAL FIX — ensure cookie is saved BEFORE redirect
+    req.session.save((err) => {
+      if (err) return next(err);
+
+      if (!req.user.username) {
+        return res.redirect(SET_USERNAME_URL);
+      }
+
+      return res.redirect(HOME_URL);
+    });
   }
 );
 
