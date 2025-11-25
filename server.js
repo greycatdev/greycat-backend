@@ -3,6 +3,7 @@ import http from "http";
 import cors from "cors";
 import dotenv from "dotenv";
 import session from "express-session";
+import MongoStore from "connect-mongo";
 import passport from "passport";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
@@ -43,12 +44,13 @@ const app = express();
 ---------------------------------------------------------- */
 const PORT = process.env.PORT || 5000;
 const CLIENT_URL = process.env.CLIENT_URL;
+const MONGO_URI = process.env.MONGO_URI;
 
 /* REQUIRED for Render / Vercel */
 app.set("trust proxy", 1);
 
 /* ----------------------------------------------------------
-   SESSION MUST COME BEFORE CORS
+   SESSION STORE (CRITICAL FIX FOR LOGIN LOOP)
 ---------------------------------------------------------- */
 app.use(
   session({
@@ -56,21 +58,25 @@ app.use(
     resave: false,
     saveUninitialized: false,
     proxy: true,
+    store: MongoStore.create({
+      mongoUrl: MONGO_URI,
+      collectionName: "sessions",
+    }),
     cookie: {
       httpOnly: true,
-      secure: true,        // Render + Vercel require secure cookies
-      sameSite: "none",    // REQUIRED for OAuth cross-domain redirects
+      secure: true,         // Required on Render + Vercel
+      sameSite: "none",     // Required for cross-site OAuth
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
   })
 );
 
-/* Initialize Passport BEFORE CORS */
+/* Passport MUST come after session */
 app.use(passport.initialize());
 app.use(passport.session());
 
 /* ----------------------------------------------------------
-   CORS (Render-safe)
+   CORS (Render / Vercel compatible)
 ---------------------------------------------------------- */
 const allowedOrigins = [
   CLIENT_URL,
