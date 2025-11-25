@@ -71,34 +71,37 @@ app.use(
 );
 
 /* ----------------------------------------------------------
-   CORS FIX (Handles mobile preflight + direct origins)
+   CLEAN CORS HANDLING (Render-safe)
 ---------------------------------------------------------- */
 const allowedOrigins = [
   CLIENT_URL,
   "http://localhost:5173",
   "http://localhost:3000",
+  "http://127.0.0.1:5173",
 ];
 
 app.use(
   cors({
-    origin: (origin, callback) => {
+    origin: function (origin, callback) {
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        console.log("❌ CORS blocked:", origin);
+        console.log("❌ BLOCKED ORIGIN:", origin);
         callback(new Error("Not allowed by CORS"));
       }
     },
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   })
 );
 
-/* Explicit preflight handling (fixes mobile login loop) */
-app.options("*", cors({
-  origin: allowedOrigins,
-  credentials: true,
-}));
+/* SAFE PREFLIGHT FIX — no "*" wildcards */
+app.options("/**", (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  return res.sendStatus(200);
+});
 
 /* ----------------------------------------------------------
    STATIC UPLOADS
@@ -180,7 +183,7 @@ io.on("connection", (socket) => {
    ERROR HANDLER
 ---------------------------------------------------------- */
 app.use((err, req, res, next) => {
-  console.error("Server Error:", err);
+  console.error("SERVER ERROR:", err);
   res.status(500).json({ success: false, message: "Server error" });
 });
 
