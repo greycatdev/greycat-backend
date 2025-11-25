@@ -10,7 +10,9 @@ const router = express.Router();
 ------------------------------------------------------------ */
 function ensureAuth(req, res, next) {
   if (!req.user?._id) {
-    return res.status(401).json({ success: false, message: "Not authenticated" });
+    return res
+      .status(401)
+      .json({ success: false, message: "Not authenticated" });
   }
   next();
 }
@@ -18,35 +20,40 @@ function ensureAuth(req, res, next) {
 /* ------------------------------------------------------------
    CREATE PROJECT
 ------------------------------------------------------------ */
-router.post("/create", ensureAuth, uploadProject.single("image"), async (req, res) => {
-  try {
-    const { title, description, tech, link } = req.body;
+router.post(
+  "/create",
+  ensureAuth,
+  uploadProject.single("image"),
+  async (req, res) => {
+    try {
+      const { title, description, tech, link } = req.body;
 
-    const project = await Project.create({
-      user: req.user._id,
-      title: title?.trim(),
-      description: description?.trim() || "",
-      tech: tech
-        ? tech.split(",").map((t) => t.trim().toLowerCase())
-        : [],
-      link: link?.trim() || "",
-      image: req.file ? req.file.path.replace(/\\/g, "/") : "",
-    });
+      const project = await Project.create({
+        user: req.user._id,
+        title: title?.trim(),
+        description: description?.trim() || "",
+        tech: tech ? tech.split(",").map((t) => t.trim().toLowerCase()) : [],
+        link: link?.trim() || "",
+        image: req.file ? req.file.path.replace(/\\/g, "/") : "",
+      });
 
-    return res.json({ success: true, project });
-  } catch (err) {
-    console.error("PROJECT CREATE ERROR:", err);
-    return res.status(500).json({ success: false, message: "Server error" });
+      return res.json({ success: true, project });
+    } catch (err) {
+      console.error("PROJECT CREATE ERROR:", err);
+      return res.status(500).json({ success: false, message: "Server error" });
+    }
   }
-});
+);
 
 /* ------------------------------------------------------------
    GET SINGLE PROJECT BY ID
 ------------------------------------------------------------ */
 router.get("/:id", async (req, res) => {
   try {
-    const project = await Project.findById(req.params.id)
-      .populate("user", "username photo");
+    const project = await Project.findById(req.params.id).populate(
+      "user",
+      "username photo"
+    );
 
     if (!project)
       return res.json({ success: false, message: "Project not found" });
@@ -66,8 +73,7 @@ router.get("/user/:username", async (req, res) => {
     const username = req.params.username.toLowerCase();
     const user = await User.findOne({ username });
 
-    if (!user)
-      return res.json({ success: false, message: "User not found" });
+    if (!user) return res.json({ success: false, message: "User not found" });
 
     const projects = await Project.find({ user: user._id })
       .sort({ createdAt: -1 })
@@ -107,3 +113,29 @@ router.delete("/:id", ensureAuth, async (req, res) => {
 });
 
 export default router;
+
+/**
+ * NEW: GET /mine
+ * Returns projects for the authenticated user. Useful when user doesn't have a username set.
+ */
+router.get(
+  "/mine",
+  (req, res, next) => {
+    if (!req.user?._id)
+      return res
+        .status(401)
+        .json({ success: false, message: "Not authenticated" });
+    next();
+  },
+  async (req, res) => {
+    try {
+      const projects = await Project.find({ user: req.user._id })
+        .sort({ createdAt: -1 })
+        .lean();
+      return res.json({ success: true, projects });
+    } catch (err) {
+      console.error("PROJECT FETCH MINE ERROR:", err);
+      return res.status(500).json({ success: false });
+    }
+  }
+);
