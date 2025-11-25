@@ -46,11 +46,11 @@ const PORT = process.env.PORT || 5000;
 const CLIENT_URL = process.env.CLIENT_URL;
 const MONGO_URI = process.env.MONGO_URI;
 
-/* Required when behind proxy (Render + Vercel) */
+/* REQUIRED for Render / Vercel */
 app.set("trust proxy", 1);
 
 /* ----------------------------------------------------------
-   SESSION STORE + CHIPS (Partitioned Cookies)
+   SESSION STORE (CRITICAL FIX FOR LOGIN LOOP)
 ---------------------------------------------------------- */
 app.use(
   session({
@@ -58,17 +58,14 @@ app.use(
     resave: false,
     saveUninitialized: false,
     proxy: true,
-
     store: MongoStore.create({
       mongoUrl: MONGO_URI,
       collectionName: "sessions",
     }),
-
     cookie: {
       httpOnly: true,
-      secure: true,          // REQUIRED on HTTPS platforms
-      sameSite: "none",      // REQUIRED for cross-site cookies
-      partitioned: true,     // ⭐ CHIPS: REQUIRED for Chrome + Brave 2024/2025
+      secure: true,         // Required on Render + Vercel
+      sameSite: "none",     // Required for cross-site OAuth
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
   })
@@ -79,7 +76,7 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 /* ----------------------------------------------------------
-   CORS CONFIG
+   CORS (Render / Vercel compatible)
 ---------------------------------------------------------- */
 const allowedOrigins = [
   CLIENT_URL,
@@ -114,17 +111,17 @@ app.use(
 app.use(compression());
 app.use(express.json({ limit: "10mb" }));
 
-/* Rate Limit */
+/* Rate Limiter */
 app.use(
   rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 500,
-    message: "Too many requests. Try again later.",
+    message: "Too many requests. Please try again later.",
   })
 );
 
 /* ----------------------------------------------------------
-   STATIC FILES
+   STATIC UPLOADS
 ---------------------------------------------------------- */
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
