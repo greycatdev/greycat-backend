@@ -48,26 +48,26 @@ const CLIENT_URL = process.env.CLIENT_URL;
 app.set("trust proxy", 1);
 
 /* ----------------------------------------------------------
-   SECURITY + PERFORMANCE
+   SESSION MUST COME BEFORE CORS
 ---------------------------------------------------------- */
 app.use(
-  helmet({
-    crossOriginEmbedderPolicy: false,
-    contentSecurityPolicy: false,
+  session({
+    secret: process.env.SESSION_SECRET || "greycat_secret",
+    resave: false,
+    saveUninitialized: false,
+    proxy: true,
+    cookie: {
+      httpOnly: true,
+      secure: true,        // Render + Vercel require secure cookies
+      sameSite: "none",    // REQUIRED for OAuth cross-domain redirects
+      maxAge: 1000 * 60 * 60 * 24 * 7,
+    },
   })
 );
 
-app.use(compression());
-app.use(express.json({ limit: "10mb" }));
-
-/* Rate Limiter */
-app.use(
-  rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 500,
-    message: "Too many requests. Please try again later.",
-  })
-);
+/* Initialize Passport BEFORE CORS */
+app.use(passport.initialize());
+app.use(passport.session());
 
 /* ----------------------------------------------------------
    CORS (Render-safe)
@@ -93,31 +93,31 @@ app.use(
 );
 
 /* ----------------------------------------------------------
-   STATIC UPLOADS
----------------------------------------------------------- */
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-
-/* ----------------------------------------------------------
-   SESSION CONFIG (Render/Vercel OAuth fix)
+   SECURITY + PERFORMANCE
 ---------------------------------------------------------- */
 app.use(
-  session({
-    secret: process.env.SESSION_SECRET || "greycat_secret",
-    resave: false,
-    saveUninitialized: false,
-    proxy: true,
-    cookie: {
-      httpOnly: true,
-      secure: true,        // REQUIRED FOR RENDER + VERCEL
-      sameSite: "none",    // REQUIRED FOR THIRD-PARTY OAUTH
-      maxAge: 1000 * 60 * 60 * 24 * 7,
-    },
+  helmet({
+    crossOriginEmbedderPolicy: false,
+    contentSecurityPolicy: false,
   })
 );
 
-/* Initialize Passport */
-app.use(passport.initialize());
-app.use(passport.session());
+app.use(compression());
+app.use(express.json({ limit: "10mb" }));
+
+/* Rate Limiter */
+app.use(
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 500,
+    message: "Too many requests. Please try again later.",
+  })
+);
+
+/* ----------------------------------------------------------
+   STATIC UPLOADS
+---------------------------------------------------------- */
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* ----------------------------------------------------------
    TEST ROUTE
@@ -142,7 +142,7 @@ app.use("/channel", channelRoutes);
 app.use("/github", githubRoutes);
 
 /* ----------------------------------------------------------
-   SOCKET.IO SERVER (full CORS fix)
+   SOCKET.IO SERVER
 ---------------------------------------------------------- */
 const httpServer = http.createServer(app);
 
