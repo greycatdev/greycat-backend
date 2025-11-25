@@ -71,15 +71,34 @@ app.use(
 );
 
 /* ----------------------------------------------------------
-   CORS (correct, no wildcard routes)
+   CORS FIX (Handles mobile preflight + direct origins)
 ---------------------------------------------------------- */
+const allowedOrigins = [
+  CLIENT_URL,
+  "http://localhost:5173",
+  "http://localhost:3000",
+];
+
 app.use(
   cors({
-    origin: CLIENT_URL,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.log("❌ CORS blocked:", origin);
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   })
 );
+
+/* Explicit preflight handling (fixes mobile login loop) */
+app.options("*", cors({
+  origin: allowedOrigins,
+  credentials: true,
+}));
 
 /* ----------------------------------------------------------
    STATIC UPLOADS
@@ -87,7 +106,7 @@ app.use(
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* ----------------------------------------------------------
-   SESSION CONFIG (Correct for Google/GitHub OAuth)
+   SESSION CONFIG
 ---------------------------------------------------------- */
 app.use(
   session({
@@ -97,7 +116,7 @@ app.use(
     proxy: true,
     cookie: {
       httpOnly: true,
-      secure: isProd,     // true only on HTTPS
+      secure: isProd,
       sameSite: isProd ? "none" : "lax",
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
@@ -137,7 +156,7 @@ const httpServer = http.createServer(app);
 
 const io = new IOServer(httpServer, {
   cors: {
-    origin: CLIENT_URL,
+    origin: allowedOrigins,
     credentials: true,
   },
   pingTimeout: 60000,
