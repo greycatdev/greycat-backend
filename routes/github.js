@@ -5,10 +5,15 @@ import Project from "../models/Project.js";
 const router = express.Router();
 
 /* --------------------------------------------------------
-   1️⃣ FETCH PUBLIC GITHUB REPOS
+   1️⃣ FETCH PUBLIC GITHUB REPOS (NO CACHE, ALWAYS FRESH)
 --------------------------------------------------------- */
 router.get("/repos/:username", async (req, res) => {
   try {
+    // Disable ALL caching: browser, Render, Cloudflare, GitHub
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+
     const username = req.params.username?.trim().toLowerCase();
 
     if (!username) {
@@ -21,6 +26,10 @@ router.get("/repos/:username", async (req, res) => {
       headers: {
         "User-Agent": "GreyCat-App",
         Accept: "application/vnd.github+json",
+
+        // 🔥 Prevent GitHub from returning ETag 304 cached response
+        "Cache-Control": "no-cache",
+        "If-None-Match": "" // Forces GitHub to always send full fresh result
       },
     });
 
@@ -33,6 +42,7 @@ router.get("/repos/:username", async (req, res) => {
     }));
 
     return res.json({ success: true, repos });
+
   } catch (err) {
     const status = err.response?.status;
     console.log("GitHub Fetch Error:", status);
@@ -91,9 +101,7 @@ router.post("/import", async (req, res) => {
         user: req.user._id,
         title: repo.name,
         description: repo.description || "No description available",
-        tech: [
-          repo.language?.trim().toLowerCase() || "unknown",
-        ],
+        tech: [repo.language?.trim().toLowerCase() || "unknown"],
         link: repoURL,
         image: "", // placeholder
       });
@@ -106,6 +114,7 @@ router.post("/import", async (req, res) => {
       importedCount: imported.length,
       message: "Projects imported successfully",
     });
+
   } catch (err) {
     console.error("GitHub Import Error:", err);
     return res.status(500).json({
