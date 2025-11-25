@@ -71,7 +71,7 @@ app.use(
 );
 
 /* ----------------------------------------------------------
-   CORS (Correct for Render + Mobile OAuth)
+   CORS (Render-safe)
 ---------------------------------------------------------- */
 const allowedOrigins = [
   CLIENT_URL,
@@ -92,9 +92,6 @@ app.use(
     credentials: true,
   })
 );
-
-/* EXPRESS v5 wildcard-safe preflight handler */
-app.options("(.*)", cors());
 
 /* ----------------------------------------------------------
    STATIC UPLOADS
