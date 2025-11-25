@@ -45,7 +45,7 @@ const PORT = process.env.PORT || 5000;
 const CLIENT_URL = process.env.CLIENT_URL;
 const isProd = process.env.NODE_ENV === "production";
 
-/* Trust proxy for Render/Vercel/Nginx */
+/* Trust proxy (REQUIRED for Render OAuth cookies) */
 app.set("trust proxy", 1);
 
 /* ----------------------------------------------------------
@@ -71,22 +71,21 @@ app.use(
 );
 
 /* ----------------------------------------------------------
-   CLEAN CORS HANDLING (Render-safe)
+   CORS (Correct for Render + Mobile OAuth)
 ---------------------------------------------------------- */
 const allowedOrigins = [
   CLIENT_URL,
   "http://localhost:5173",
   "http://localhost:3000",
-  "http://127.0.0.1:5173",
 ];
 
 app.use(
   cors({
-    origin: function (origin, callback) {
+    origin: (origin, callback) => {
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        console.log("❌ BLOCKED ORIGIN:", origin);
+        console.log("❌ CORS blocked:", origin);
         callback(new Error("Not allowed by CORS"));
       }
     },
@@ -94,14 +93,8 @@ app.use(
   })
 );
 
-/* SAFE PREFLIGHT FIX — no "*" wildcards */
-app.options("/**", (req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "");
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  return res.sendStatus(200);
-});
+/* EXPRESS v5 wildcard-safe preflight handler */
+app.options("(.*)", cors());
 
 /* ----------------------------------------------------------
    STATIC UPLOADS
@@ -109,7 +102,7 @@ app.options("/**", (req, res) => {
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* ----------------------------------------------------------
-   SESSION CONFIG
+   SESSION CONFIG (OAuth cookie fix)
 ---------------------------------------------------------- */
 app.use(
   session({
@@ -183,7 +176,7 @@ io.on("connection", (socket) => {
    ERROR HANDLER
 ---------------------------------------------------------- */
 app.use((err, req, res, next) => {
-  console.error("SERVER ERROR:", err);
+  console.error("Server Error:", err);
   res.status(500).json({ success: false, message: "Server error" });
 });
 
