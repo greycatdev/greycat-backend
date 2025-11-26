@@ -127,9 +127,12 @@ router.put("/update", ensureAuth, async (req, res) => {
     if (social) updates.social = social;
     if (location) updates.location = location;
 
-    const updated = await User.findByIdAndUpdate(req.user._id, updates, {
-      new: true,
-    }).select("username name photo bio skills social location");
+    updates.updatedAt = Date.now(); // <— ⭐ VERY IMPORTANT
+
+const updated = await User.findByIdAndUpdate(req.user._id, updates, {
+  new: true,
+}).select("username name photo bio skills social location updatedAt");
+
 
     return res.json({ success: true, user: updated });
   } catch (err) {
@@ -166,11 +169,12 @@ router.post(
         });
       }
 
-      const updatedUser = await User.findByIdAndUpdate(
-        req.user._id,
-        { photo: imageURL },
-        { new: true }
-      ).select("photo");
+     const updatedUser = await User.findByIdAndUpdate(
+  req.user._id,
+  { photo: imageURL, updatedAt: Date.now() }, // ⭐ add updatedAt
+  { new: true }
+).select("photo updatedAt");
+
 
       return res.json({
         success: true,

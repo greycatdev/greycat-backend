@@ -34,23 +34,23 @@ import uploadRoutes from "./routes/upload.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/* Load environment variables */
+/* Load .env */
 dotenv.config();
 
 const app = express();
 
-/* ----------------------------------------------------------
-   GLOBAL CONFIG
----------------------------------------------------------- */
+/* ---------------------------------------------
+   GLOBAL CONSTANTS
+--------------------------------------------- */
 const PORT = process.env.PORT || 5000;
 const CLIENT_URL = process.env.CLIENT_URL;
 const MONGO_URI = process.env.MONGO_URI;
 
-/* REQUIRED for Render / Vercel */
+/* Required for Render / Vercel (trust proxy) */
 app.set("trust proxy", 1);
 
 /* ----------------------------------------------------------
-   SESSION STORE (CRITICAL FIX FOR LOGIN LOOP)
+   SESSION STORE (Critical for Google OAuth)
 ---------------------------------------------------------- */
 app.use(
   session({
@@ -64,19 +64,19 @@ app.use(
     }),
     cookie: {
       httpOnly: true,
-      secure: true,         // Required on Render + Vercel
-      sameSite: "none",     // Required for cross-site OAuth
-      maxAge: 1000 * 60 * 60 * 24 * 7,
+      secure: true,
+      sameSite: "none",
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
     },
   })
 );
 
-/* Passport MUST come after session */
+/* Passport */
 app.use(passport.initialize());
 app.use(passport.session());
 
 /* ----------------------------------------------------------
-   CORS (Render / Vercel compatible)
+   CORS FIX — SUPPORTS Vercel Previews
 ---------------------------------------------------------- */
 const allowedOrigins = [
   CLIENT_URL,
@@ -84,10 +84,17 @@ const allowedOrigins = [
   "http://localhost:3000",
 ];
 
+// Allow all Vercel preview URLs
+const vercelPattern = /^https:\/\/.*vercel\.app$/;
+
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        vercelPattern.test(origin)
+      ) {
         callback(null, true);
       } else {
         console.log("❌ CORS blocked:", origin);
@@ -116,7 +123,7 @@ app.use(
   rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 500,
-    message: "Too many requests. Please try again later.",
+    message: "Too many requests. Try later.",
   })
 );
 
@@ -148,14 +155,18 @@ app.use("/channel", channelRoutes);
 app.use("/github", githubRoutes);
 
 /* ----------------------------------------------------------
-   SOCKET.IO SERVER
+   SOCKET.IO SERVER (CORS FIXED)
 ---------------------------------------------------------- */
 const httpServer = http.createServer(app);
 
 const io = new IOServer(httpServer, {
   cors: {
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        vercelPattern.test(origin)
+      ) {
         callback(null, true);
       } else {
         console.log("❌ Socket.IO CORS blocked:", origin);
@@ -186,7 +197,10 @@ io.on("connection", (socket) => {
 ---------------------------------------------------------- */
 app.use((err, req, res, next) => {
   console.error("Server Error:", err);
-  res.status(500).json({ success: false, message: "Server error" });
+  res.status(500).json({
+    success: false,
+    message: "Server error",
+  });
 });
 
 /* ----------------------------------------------------------
@@ -195,5 +209,5 @@ app.use((err, req, res, next) => {
 connectDB();
 
 httpServer.listen(PORT, () =>
-  console.log(`🚀 GreyCat server running on port: ${PORT}`)
+  console.log(`🚀 GreyCat server running on port ${PORT}`)
 );

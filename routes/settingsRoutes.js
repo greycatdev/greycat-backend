@@ -36,7 +36,7 @@ router.get("/", ensureAuth, async (req, res) => {
 });
 
 /* ---------------------------------------------------------
-   UPDATE PROFILE
+   UPDATE PROFILE  (FULLY FIXED)
 --------------------------------------------------------- */
 router.post("/profile", ensureAuth, async (req, res) => {
   try {
@@ -72,7 +72,7 @@ router.post("/profile", ensureAuth, async (req, res) => {
       const exists = await User.findOne({
         username: final,
         _id: { $ne: req.user._id },
-      }).lean();
+      });
 
       if (exists) {
         return res.json({
@@ -84,8 +84,16 @@ router.post("/profile", ensureAuth, async (req, res) => {
       updates.username = final;
     }
 
+    /* ---- UPDATE USER ---- */
     const updated = await User.findByIdAndUpdate(req.user._id, updates, {
       new: true,
+    });
+
+    /* ---------------------------------------------------
+       IMPORTANT FIX: REFRESH PASSPORT SESSION
+    --------------------------------------------------- */
+    req.login(updated, (err) => {
+      if (err) console.log("Session refresh failed:", err);
     });
 
     return res.json({ success: true, user: updated });
@@ -104,13 +112,11 @@ router.post("/preferences", ensureAuth, async (req, res) => {
       req.body;
 
     const user = await User.findById(req.user._id);
-
     if (!user.preferences) user.preferences = {};
 
     if (darkMode !== undefined) user.preferences.darkMode = !!darkMode;
     if (showEmail !== undefined) user.preferences.showEmail = !!showEmail;
-    if (showProjects !== undefined)
-      user.preferences.showProjects = !!showProjects;
+    if (showProjects !== undefined) user.preferences.showProjects = !!showProjects;
     if (notifications) user.preferences.notifications = notifications;
     if (language) user.preferences.language = language;
 
@@ -134,11 +140,7 @@ router.post("/privacy", ensureAuth, async (req, res) => {
     const { privateProfile } = req.body;
 
     const user = await User.findById(req.user._id);
-
-    user.privacy = {
-      privateProfile: !!privateProfile,
-    };
-
+    user.privacy = { privateProfile: !!privateProfile };
     await user.save();
 
     return res.json({ success: true, privacy: user.privacy });
@@ -165,8 +167,10 @@ router.post("/block", ensureAuth, async (req, res) => {
       });
     }
 
-    const target = await User.findById(userId).lean();
-    if (!target) return res.json({ success: false, message: "User not found" });
+    const target = await User.findById(userId);
+    if (!target) {
+      return res.json({ success: false, message: "User not found" });
+    }
 
     await User.findByIdAndUpdate(req.user._id, {
       $addToSet: { blockedUsers: userId },
@@ -198,21 +202,18 @@ router.post("/unblock", ensureAuth, async (req, res) => {
 });
 
 /* ---------------------------------------------------------
-   DELETE ACCOUNT (DANGER ZONE)
+   DELETE ACCOUNT
 --------------------------------------------------------- */
 router.delete("/delete", ensureAuth, async (req, res) => {
   try {
     const uid = req.user._id;
 
-    // delete user-owned content
     await Post.deleteMany({ user: uid });
     await Project.deleteMany({ user: uid });
     await Event.deleteMany({ host: uid });
 
-    // delete user
     await User.findByIdAndDelete(uid);
 
-    // destroy session
     req.logout((err) => {
       if (err) console.error("Logout error during delete:", err);
       res.clearCookie("connect.sid");
