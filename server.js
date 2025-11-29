@@ -43,7 +43,7 @@ const __dirname = path.dirname(__filename);
 app.set("trust proxy", 1);
 
 /* ---------------------------------------------------------
-   SESSION CONFIG
+   SESSION (Render & Express v5 compatible)
 --------------------------------------------------------- */
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -60,7 +60,7 @@ app.use(
     }),
     cookie: {
       httpOnly: true,
-      secure: isProduction,
+      secure: isProduction, // Render = true
       sameSite: isProduction ? "none" : "lax",
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
@@ -68,13 +68,13 @@ app.use(
 );
 
 /* ---------------------------------------------------------
-   PASSPORT INIT
+   PASSPORT
 --------------------------------------------------------- */
 app.use(passport.initialize());
 app.use(passport.session());
 
 /* ---------------------------------------------------------
-   CORS CONFIG
+   ALLOWED ORIGINS
 --------------------------------------------------------- */
 const allowedOrigins = [
   CLIENT_URL,
@@ -82,23 +82,37 @@ const allowedOrigins = [
   "http://localhost:3000",
 ];
 
+/* ---------------------------------------------------------
+   CORS (Render + Express v5 Compatible)
+--------------------------------------------------------- */
 app.use(
   cors({
-    origin: function (origin, cb) {
+    origin(origin, cb) {
       if (!origin) return cb(null, true);
+
       if (allowedOrigins.includes(origin)) return cb(null, true);
+
       if (/https:\/\/.*\.vercel\.app$/.test(origin)) return cb(null, true);
 
-      console.log("❌ CORS blocked:", origin);
+      console.log("❌ CORS BLOCKED:", origin);
       return cb(new Error("Not allowed by CORS"));
     },
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-app.options("*", cors());
+/* ---------------------------------------------------------
+   FIX: Express v5 breaks on app.options("*") — this replaces it
+--------------------------------------------------------- */
+app.options("/*", (req, res) => {
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  return res.sendStatus(200);
+});
 
 /* ---------------------------------------------------------
    SECURITY + PERFORMANCE
@@ -121,13 +135,9 @@ app.use(
 );
 
 /* ---------------------------------------------------------
-   STATIC FILES (⭐ includes default profile image)
+   STATIC FILES
 --------------------------------------------------------- */
-
-// 1️⃣ Public folder → default-profile image
-app.use(express.static(path.join(__dirname, "public")));
-
-// 2️⃣ Uploaded images
+app.use(express.static(path.join(__dirname, "public"))); // default-profile.jpg
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* ---------------------------------------------------------
@@ -138,7 +148,7 @@ app.get("/", (req, res) => {
 });
 
 /* ---------------------------------------------------------
-   API ROUTES
+   ROUTES
 --------------------------------------------------------- */
 app.use("/auth", authRoutes);
 app.use("/upload", uploadRoutes);
