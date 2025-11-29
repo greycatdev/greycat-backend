@@ -18,7 +18,7 @@ import "./auth/google.js";
 import "./auth/github.js";
 
 // Updated auth system (Email + Password + OAuth)
-import authRoutes from "./routes/auth/authRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
 
 // Other existing routes
 import userRoutes from "./routes/userRoutes.js";
