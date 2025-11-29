@@ -3,7 +3,7 @@ import passport from "passport";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
-import User from "../models/User.js"; // adjust path if different
+import User from "../models/User.js";
 
 const router = Router();
 
@@ -17,18 +17,18 @@ const SET_USERNAME_URL = `${CLIENT_URL}/set-username`;
 const HOME_URL = `${CLIENT_URL}/`;
 
 /* -------------------------------------------------------
-   0️⃣ SMTP Email Setup
+   SMTP EMAIL SETUP
 -------------------------------------------------------- */
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS, // App Password
+    user: process.env.EMAIL_USER,   // Gmail address
+    pass: process.env.EMAIL_PASS,   // App Password
   },
 });
 
 /* -------------------------------------------------------
-   1️⃣ EMAIL + PASSWORD — SIGNUP
+   1️⃣ SIGNUP — Name, Email, Password
 -------------------------------------------------------- */
 router.post("/signup", async (req, res) => {
   try {
@@ -50,6 +50,7 @@ router.post("/signup", async (req, res) => {
     });
 
     return res.json({ success: true, message: "Account created" });
+
   } catch (err) {
     console.error("SIGNUP ERROR:", err);
     return res.json({ success: false, message: "Server error" });
@@ -57,15 +58,17 @@ router.post("/signup", async (req, res) => {
 });
 
 /* -------------------------------------------------------
-   2️⃣ EMAIL + PASSWORD — LOGIN
+   2️⃣ LOGIN — Email + Password
 -------------------------------------------------------- */
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
+
     if (!email || !password)
       return res.json({ success: false, message: "Email and password required" });
 
-    const user = await User.findOne({ email });
+    // IMPORTANT FIX → Include password field
+    const user = await User.findOne({ email }).select("+password");
     if (!user)
       return res.json({ success: false, message: "User not found" });
 
@@ -73,7 +76,7 @@ router.post("/login", async (req, res) => {
     if (!valid)
       return res.json({ success: false, message: "Incorrect password" });
 
-    // Set session
+    // Save session
     req.session.user = {
       id: user._id,
       email: user.email,
@@ -85,6 +88,7 @@ router.post("/login", async (req, res) => {
       message: "Login successful",
       user: req.session.user,
     });
+
   } catch (err) {
     console.error("LOGIN ERROR:", err);
     return res.json({ success: false, message: "Server error" });
@@ -92,11 +96,12 @@ router.post("/login", async (req, res) => {
 });
 
 /* -------------------------------------------------------
-   3️⃣ FORGOT PASSWORD — SEND RESET LINK
+   3️⃣ FORGOT PASSWORD — Send Reset Link
 -------------------------------------------------------- */
 router.post("/forgot-password", async (req, res) => {
   try {
     const { email } = req.body;
+
     if (!email)
       return res.json({ success: false, message: "Email required" });
 
@@ -104,6 +109,7 @@ router.post("/forgot-password", async (req, res) => {
     if (!user)
       return res.json({ success: false, message: "Email not found" });
 
+    // Create token
     const token = crypto.randomBytes(32).toString("hex");
 
     user.resetToken = token;
@@ -130,6 +136,7 @@ router.post("/forgot-password", async (req, res) => {
     });
 
     return res.json({ success: true, message: "Reset link sent" });
+
   } catch (err) {
     console.error("FORGOT ERROR:", err);
     return res.json({ success: false, message: "Server error" });
@@ -137,7 +144,7 @@ router.post("/forgot-password", async (req, res) => {
 });
 
 /* -------------------------------------------------------
-   4️⃣ RESET PASSWORD — TOKEN VALIDATION
+   4️⃣ RESET PASSWORD — Validate Token & Save New Pass
 -------------------------------------------------------- */
 router.post("/reset-password/:token", async (req, res) => {
   try {
@@ -155,12 +162,15 @@ router.post("/reset-password/:token", async (req, res) => {
     if (!user)
       return res.json({ success: false, message: "Invalid or expired token" });
 
+    // Update password
     user.password = await bcrypt.hash(password, 10);
     user.resetToken = undefined;
     user.resetTokenExpiry = undefined;
+
     await user.save();
 
     return res.json({ success: true, message: "Password reset successful" });
+
   } catch (err) {
     console.error("RESET ERROR:", err);
     return res.json({ success: false, message: "Server error" });
@@ -179,8 +189,7 @@ router.get(
   "/google/callback",
   passport.authenticate("google", { failureRedirect: LOGIN_URL }),
   (req, res, next) => {
-    req.session.save((err) => {
-      if (err) return next(err);
+    req.session.save(() => {
       if (!req.user.username) return res.redirect(SET_USERNAME_URL);
       return res.redirect(HOME_URL);
     });
@@ -199,8 +208,7 @@ router.get(
   "/github/callback",
   passport.authenticate("github", { failureRedirect: LOGIN_URL }),
   (req, res, next) => {
-    req.session.save((err) => {
-      if (err) return next(err);
+    req.session.save(() => {
       if (!req.user.username) return res.redirect(SET_USERNAME_URL);
       return res.redirect(HOME_URL);
     });
@@ -208,7 +216,7 @@ router.get(
 );
 
 /* -------------------------------------------------------
-   7️⃣ CHECK USER AUTH
+   7️⃣ CHECK USER AUTH — (Email/Pass + OAuth)
 -------------------------------------------------------- */
 router.get("/user", (req, res) => {
   // OAuth user
@@ -216,7 +224,7 @@ router.get("/user", (req, res) => {
     return res.json({ authenticated: true, user: req.user });
   }
 
-  // Email + password login session
+  // Email/password session
   if (req.session.user) {
     return res.json({ authenticated: true, user: req.session.user });
   }
@@ -225,7 +233,7 @@ router.get("/user", (req, res) => {
 });
 
 /* -------------------------------------------------------
-   8️⃣ LOGOUT
+   8️⃣ LOGOUT — Clear session + cookie
 -------------------------------------------------------- */
 router.get("/logout", (req, res) => {
   req.logout(() => {

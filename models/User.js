@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
 /* -------------------------------------------------------
-   HELPER → normalize skills & social links
+   HELPERS → Normalizing Data
 -------------------------------------------------------- */
 const normalizeSkills = (arr) =>
   arr.map((s) => s.trim().toLowerCase()).filter(Boolean);
@@ -14,21 +14,21 @@ const normalizeURL = (url) => (url ? url.trim() : "");
 const userSchema = new mongoose.Schema(
   {
     /* ---------------------------------------------
-       AUTH IDs (OAuth)
+       AUTH IDs (OAuth Providers)
     --------------------------------------------- */
     googleId: { type: String, index: true },
     githubId: { type: String, index: true },
 
     /* ---------------------------------------------
-       EMAIL + PASSWORD AUTH (NEW)
+       EMAIL + PASSWORD AUTH
     --------------------------------------------- */
     password: {
       type: String,
-      select: false, // security — do not send hash automatically
+      select: false, // IMPORTANT: Hidden unless explicitly selected
     },
 
-    resetToken: String,
-    resetTokenExpiry: Date,
+    resetToken: { type: String },
+    resetTokenExpiry: { type: Date },
 
     /* ---------------------------------------------
        PROFILE INFO
@@ -36,7 +36,7 @@ const userSchema = new mongoose.Schema(
     username: {
       type: String,
       unique: true,
-      sparse: true,
+      sparse: true, // allows null without duplicate error
       trim: true,
       lowercase: true,
       index: true,
@@ -106,7 +106,7 @@ const userSchema = new mongoose.Schema(
     },
 
     /* ---------------------------------------------
-       PRIVACY
+       PRIVACY SETTINGS
     --------------------------------------------- */
     privacy: {
       privateProfile: { type: Boolean, default: false },
@@ -143,7 +143,7 @@ const userSchema = new mongoose.Schema(
 );
 
 /* -------------------------------------------------------
-   METHODS — follow / unfollow
+   METHODS — FOLLOW / UNFOLLOW
 -------------------------------------------------------- */
 userSchema.methods.follow = function (userId) {
   if (!this.following.includes(userId)) {
