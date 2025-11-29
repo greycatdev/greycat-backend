@@ -17,7 +17,8 @@ const SET_USERNAME_URL = `${CLIENT_URL}/set-username`;
 const HOME_URL = `${CLIENT_URL}/`;
 
 const DEFAULT_PHOTO =
-  "https://raw.githubusercontent.com/shahal-kp/greycat-assets/main/default-profile.jpg"; 
+  "https://greycat-backend.onrender.com/default-profile.jpg";
+
 // <- host your JPG here OR use your render public path
 
 /* -------------------------------------------------------
