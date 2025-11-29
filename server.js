@@ -32,19 +32,22 @@ import uploadRoutes from "./routes/upload.js";
 
 dotenv.config();
 
+// ---------------------------------------------------------
+// BASIC SETUP
+// ---------------------------------------------------------
 const app = express();
 const PORT = process.env.PORT || 5000;
-const CLIENT_URL = process.env.CLIENT_URL;
 const MONGO_URI = process.env.MONGO_URI;
+const CLIENT_URL = process.env.CLIENT_URL;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 app.set("trust proxy", 1);
 
-/* ---------------------------------------------------------
-   SESSION (Render & Express v5 compatible)
---------------------------------------------------------- */
+// ---------------------------------------------------------
+// SESSION CONFIG (Important for Render)
+// ---------------------------------------------------------
 const isProduction = process.env.NODE_ENV === "production";
 
 app.use(
@@ -60,63 +63,64 @@ app.use(
     }),
     cookie: {
       httpOnly: true,
-      secure: isProduction, // Render = true
+      secure: isProduction,
       sameSite: isProduction ? "none" : "lax",
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
   })
 );
 
-/* ---------------------------------------------------------
-   PASSPORT
---------------------------------------------------------- */
+// ---------------------------------------------------------
+// PASSPORT
+// ---------------------------------------------------------
 app.use(passport.initialize());
 app.use(passport.session());
 
-/* ---------------------------------------------------------
-   ALLOWED ORIGINS
---------------------------------------------------------- */
+// ---------------------------------------------------------
+// CORS
+// ---------------------------------------------------------
 const allowedOrigins = [
   CLIENT_URL,
   "http://localhost:5173",
   "http://localhost:3000",
 ];
 
-/* ---------------------------------------------------------
-   CORS (Render + Express v5 Compatible)
---------------------------------------------------------- */
 app.use(
   cors({
-    origin(origin, cb) {
+    origin: (origin, cb) => {
       if (!origin) return cb(null, true);
 
       if (allowedOrigins.includes(origin)) return cb(null, true);
 
       if (/https:\/\/.*\.vercel\.app$/.test(origin)) return cb(null, true);
 
-      console.log("❌ CORS BLOCKED:", origin);
+      console.log("CORS blocked:", origin);
       return cb(new Error("Not allowed by CORS"));
     },
     credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-/* ---------------------------------------------------------
-   FIX: Express v5 breaks on app.options("*") — this replaces it
---------------------------------------------------------- */
-app.options("/*", (req, res) => {
-  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
-  res.header("Access-Control-Allow-Credentials", "true");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-  return res.sendStatus(200);
+// ---------------------------------------------------------
+// GLOBAL OPTIONS HANDLER (Express v5 SAFE - No wildcard)
+// ---------------------------------------------------------
+app.use((req, res, next) => {
+  if (req.method === "OPTIONS") {
+    res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+    res.header("Access-Control-Allow-Credentials", "true");
+    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.header(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    );
+    return res.sendStatus(200);
+  }
+  next();
 });
 
-/* ---------------------------------------------------------
-   SECURITY + PERFORMANCE
---------------------------------------------------------- */
+// ---------------------------------------------------------
+// SECURITY + PERFORMANCE
+// ---------------------------------------------------------
 app.use(
   helmet({
     contentSecurityPolicy: false,
@@ -134,22 +138,26 @@ app.use(
   })
 );
 
-/* ---------------------------------------------------------
-   STATIC FILES
---------------------------------------------------------- */
-app.use(express.static(path.join(__dirname, "public"))); // default-profile.jpg
+// ---------------------------------------------------------
+// STATIC FILES
+// ---------------------------------------------------------
+
+// Default profile image + any public assets
+app.use(express.static(path.join(__dirname, "public")));
+
+// Uploaded images folder
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-/* ---------------------------------------------------------
-   BASE ROUTE
---------------------------------------------------------- */
+// ---------------------------------------------------------
+// BASE ROUTE
+// ---------------------------------------------------------
 app.get("/", (req, res) => {
   res.send("GreyCat API Online ✔");
 });
 
-/* ---------------------------------------------------------
-   ROUTES
---------------------------------------------------------- */
+// ---------------------------------------------------------
+// ROUTES
+// ---------------------------------------------------------
 app.use("/auth", authRoutes);
 app.use("/upload", uploadRoutes);
 app.use("/user", userRoutes);
@@ -162,9 +170,9 @@ app.use("/settings", settingsRoutes);
 app.use("/channel", channelRoutes);
 app.use("/github", githubRoutes);
 
-/* ---------------------------------------------------------
-   SOCKET.IO
---------------------------------------------------------- */
+// ---------------------------------------------------------
+// SOCKET.IO
+// ---------------------------------------------------------
 const httpServer = http.createServer(app);
 
 const io = new IOServer(httpServer, {
@@ -180,17 +188,17 @@ io.on("connection", (socket) => {
   console.log("Socket connected:", socket.id);
 });
 
-/* ---------------------------------------------------------
-   ERROR HANDLER
---------------------------------------------------------- */
+// ---------------------------------------------------------
+// ERROR HANDLER
+// ---------------------------------------------------------
 app.use((err, req, res, next) => {
   console.error("Server Error:", err);
   res.status(500).json({ success: false, message: "Server error" });
 });
 
-/* ---------------------------------------------------------
-   START SERVER
---------------------------------------------------------- */
+// ---------------------------------------------------------
+// START SERVER
+// ---------------------------------------------------------
 connectDB();
 
 httpServer.listen(PORT, () =>
