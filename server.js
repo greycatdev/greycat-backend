@@ -32,22 +32,23 @@ import uploadRoutes from "./routes/upload.js";
 
 dotenv.config();
 
-// ---------------------------------------------------------
-// BASIC SETUP
-// ---------------------------------------------------------
+/* ---------------------------------------------------------
+   BASIC SETUP
+--------------------------------------------------------- */
 const app = express();
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI;
 const CLIENT_URL = process.env.CLIENT_URL;
+const BACKEND_URL = process.env.BACKEND_URL;   // ⭐ IMPORTANT
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 app.set("trust proxy", 1);
 
-// ---------------------------------------------------------
-// SESSION CONFIG (Important for Render)
-// ---------------------------------------------------------
+/* ---------------------------------------------------------
+   SESSION CONFIG
+--------------------------------------------------------- */
 const isProduction = process.env.NODE_ENV === "production";
 
 app.use(
@@ -70,17 +71,18 @@ app.use(
   })
 );
 
-// ---------------------------------------------------------
-// PASSPORT
-// ---------------------------------------------------------
+/* ---------------------------------------------------------
+   PASSPORT
+--------------------------------------------------------- */
 app.use(passport.initialize());
 app.use(passport.session());
 
-// ---------------------------------------------------------
-// CORS
-// ---------------------------------------------------------
+/* ---------------------------------------------------------
+   CORS
+--------------------------------------------------------- */
 const allowedOrigins = [
   CLIENT_URL,
+  BACKEND_URL,                  // ⭐ Add backend for SSR/API calls
   "http://localhost:5173",
   "http://localhost:3000",
 ];
@@ -89,21 +91,19 @@ app.use(
   cors({
     origin: (origin, cb) => {
       if (!origin) return cb(null, true);
-
       if (allowedOrigins.includes(origin)) return cb(null, true);
-
       if (/https:\/\/.*\.vercel\.app$/.test(origin)) return cb(null, true);
 
-      console.log("CORS blocked:", origin);
+      console.log("🚫 CORS blocked:", origin);
       return cb(new Error("Not allowed by CORS"));
     },
     credentials: true,
   })
 );
 
-// ---------------------------------------------------------
-// GLOBAL OPTIONS HANDLER (Express v5 SAFE - No wildcard)
-// ---------------------------------------------------------
+/* ---------------------------------------------------------
+   GLOBAL OPTIONS HANDLER
+--------------------------------------------------------- */
 app.use((req, res, next) => {
   if (req.method === "OPTIONS") {
     res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
@@ -118,9 +118,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// ---------------------------------------------------------
-// SECURITY + PERFORMANCE
-// ---------------------------------------------------------
+/* ---------------------------------------------------------
+   SECURITY + PERFORMANCE
+--------------------------------------------------------- */
 app.use(
   helmet({
     contentSecurityPolicy: false,
@@ -138,26 +138,25 @@ app.use(
   })
 );
 
-// ---------------------------------------------------------
-// STATIC FILES
-// ---------------------------------------------------------
-
-// Default profile image + any public assets
+/* ---------------------------------------------------------
+   STATIC FILES
+--------------------------------------------------------- */
+// serves backend/public (⭐ your default-image.jpg exists here)
 app.use(express.static(path.join(__dirname, "public")));
 
-// Uploaded images folder
+// uploaded images
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// ---------------------------------------------------------
-// BASE ROUTE
-// ---------------------------------------------------------
+/* ---------------------------------------------------------
+   BASE ROUTE
+--------------------------------------------------------- */
 app.get("/", (req, res) => {
   res.send("GreyCat API Online ✔");
 });
 
-// ---------------------------------------------------------
-// ROUTES
-// ---------------------------------------------------------
+/* ---------------------------------------------------------
+   ROUTES
+--------------------------------------------------------- */
 app.use("/auth", authRoutes);
 app.use("/upload", uploadRoutes);
 app.use("/user", userRoutes);
@@ -170,9 +169,9 @@ app.use("/settings", settingsRoutes);
 app.use("/channel", channelRoutes);
 app.use("/github", githubRoutes);
 
-// ---------------------------------------------------------
-// SOCKET.IO
-// ---------------------------------------------------------
+/* ---------------------------------------------------------
+   SOCKET.IO
+--------------------------------------------------------- */
 const httpServer = http.createServer(app);
 
 const io = new IOServer(httpServer, {
@@ -188,17 +187,17 @@ io.on("connection", (socket) => {
   console.log("Socket connected:", socket.id);
 });
 
-// ---------------------------------------------------------
-// ERROR HANDLER
-// ---------------------------------------------------------
+/* ---------------------------------------------------------
+   ERROR HANDLER
+--------------------------------------------------------- */
 app.use((err, req, res, next) => {
   console.error("Server Error:", err);
   res.status(500).json({ success: false, message: "Server error" });
 });
 
-// ---------------------------------------------------------
-// START SERVER
-// ---------------------------------------------------------
+/* ---------------------------------------------------------
+   START SERVER
+--------------------------------------------------------- */
 connectDB();
 
 httpServer.listen(PORT, () =>

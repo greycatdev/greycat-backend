@@ -11,15 +11,14 @@ const router = Router();
    ENV / CONSTANTS
 -------------------------------------------------------- */
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:5000";
 
 const LOGIN_URL = `${CLIENT_URL}/login`;
 const SET_USERNAME_URL = `${CLIENT_URL}/set-username`;
 const HOME_URL = `${CLIENT_URL}/`;
 
-const DEFAULT_PHOTO =
-  "https://greycat-backend.onrender.com/default-profile.jpg";
-
-// <- host your JPG here OR use your render public path
+// IMPORTANT: Your image is inside backend/public/default-image.jpg
+const DEFAULT_PHOTO = `${BACKEND_URL}/default-image.jpg`;
 
 /* -------------------------------------------------------
    SMTP (GMAIL — App Password Required)
@@ -49,7 +48,8 @@ router.post("/signup", async (req, res) => {
     if (!name || !email || !password)
       return res.json({ success: false, message: "All fields are required" });
 
-    const exists = await User.findOne({ email });
+    const cleanEmail = email.trim().toLowerCase();
+    const exists = await User.findOne({ email: cleanEmail });
     if (exists)
       return res.json({ success: false, message: "Email already registered" });
 
@@ -57,7 +57,7 @@ router.post("/signup", async (req, res) => {
 
     await User.create({
       name,
-      email,
+      email: cleanEmail,
       password: hashed,
       username: null,
       photo: DEFAULT_PHOTO,
@@ -94,7 +94,6 @@ router.post("/login", async (req, res) => {
     if (!valid)
       return res.json({ success: false, message: "Incorrect password" });
 
-    // Ensure fallback photo
     const finalPhoto = user.photo || DEFAULT_PHOTO;
 
     req.session.user = {

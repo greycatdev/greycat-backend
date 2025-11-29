@@ -7,10 +7,10 @@ const router = express.Router();
 /* -----------------------------------------------------
    CONSTANTS: DEFAULT PROFILE PHOTO
 ----------------------------------------------------- */
-const DEFAULT_PHOTO =
-  "https://greycat-backend.onrender.com/default-profile.jpg";
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:5000";
 
-// Put your fox.jpg link here
+// Your image is stored in backend/public/default-image.jpg
+const DEFAULT_PHOTO = `${BACKEND_URL}/default-image.jpg`;
 
 /* -----------------------------------------------------
    AUTH MIDDLEWARE (OAuth + Session Login)
@@ -116,7 +116,7 @@ router.get("/by-username/:username", async (req, res) => {
       });
     }
 
-    // ▪ Ensures profile picture always exists
+    // fallback photo
     if (!user.photo) user.photo = DEFAULT_PHOTO;
 
     return res.json({ success: true, user });
@@ -147,12 +147,10 @@ router.put("/update", ensureAuth, async (req, res) => {
 
     const user = await User.findById(req.authUserId).lean();
 
-    // merge socials
     if (social) {
       updates.social = { ...(user.social || {}), ...social };
     }
 
-    // merge location
     if (location) {
       updates.location = { ...(user.location || {}), ...location };
     }
@@ -165,7 +163,6 @@ router.put("/update", ensureAuth, async (req, res) => {
       { new: true }
     ).select("username name photo bio skills social location updatedAt");
 
-    // fallback photo
     updatedUser.photo = updatedUser.photo || DEFAULT_PHOTO;
 
     return res.json({ success: true, user: updatedUser });
