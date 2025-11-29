@@ -13,12 +13,14 @@ import { Server as IOServer } from "socket.io";
 import { fileURLToPath } from "url";
 import { connectDB } from "./config/db.js";
 
-/* OAuth Providers */
+// OAuth strategies
 import "./auth/google.js";
 import "./auth/github.js";
 
-/* Routes */
-import authRoutes from "./routes/authRoutes.js";
+// Updated auth system (Email + Password + OAuth)
+import authRoutes from "./routes/auth/authRoutes.js";
+
+// Other existing routes
 import userRoutes from "./routes/userRoutes.js";
 import postRoutes from "./routes/postRoutes.js";
 import followRoutes from "./routes/followRoutes.js";
@@ -30,27 +32,21 @@ import settingsRoutes from "./routes/settingsRoutes.js";
 import channelRoutes from "./routes/channelRoutes.js";
 import uploadRoutes from "./routes/upload.js";
 
-/* dirname */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 dotenv.config();
-
-/* -------------------------------------------------------------
-   EXPRESS APP
-------------------------------------------------------------- */
 const app = express();
 
 const PORT = process.env.PORT || 5000;
 const CLIENT_URL = process.env.CLIENT_URL;
 const MONGO_URI = process.env.MONGO_URI;
 
-/* Trust proxy required for Render / Vercel */
 app.set("trust proxy", 1);
 
-/* -------------------------------------------------------------
-   SESSION (OAuth Critical)
-------------------------------------------------------------- */
+/* ---------------------------------------
+   SESSION CONFIG (Production Ready)
+---------------------------------------- */
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "greycat_secret",
@@ -63,44 +59,44 @@ app.use(
     }),
     cookie: {
       httpOnly: true,
-      secure: true,
+      secure: true, // required on vercel, https
       sameSite: "none",
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
   })
 );
 
-/* Passport */
 app.use(passport.initialize());
 app.use(passport.session());
 
-/* -------------------------------------------------------------
-   CORS (Supports Vercel Preview URLs)
-------------------------------------------------------------- */
+/* ---------------------------------------
+   CORS CONFIG
+---------------------------------------- */
 const allowedOrigins = [
   CLIENT_URL,
   "http://localhost:5173",
   "http://localhost:3000",
 ];
+
 const vercelPattern = /^https:\/\/.*vercel\.app$/;
 
-const corsOptions = {
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin) || vercelPattern.test(origin)) {
-      callback(null, true);
-    } else {
-      console.log("❌ CORS blocked:", origin);
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
-  credentials: true,
-};
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin) || vercelPattern.test(origin)) {
+        callback(null, true);
+      } else {
+        console.log("❌ CORS blocked:", origin);
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+  })
+);
 
-app.use(cors(corsOptions));
-
-/* -------------------------------------------------------------
+/* ---------------------------------------
    SECURITY + PERFORMANCE
-------------------------------------------------------------- */
+---------------------------------------- */
 app.use(
   helmet({
     crossOriginEmbedderPolicy: false,
@@ -111,7 +107,6 @@ app.use(
 app.use(compression());
 app.use(express.json({ limit: "10mb" }));
 
-/* Rate limiter */
 app.use(
   rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -120,23 +115,26 @@ app.use(
   })
 );
 
-/* -------------------------------------------------------------
-   STATIC UPLOADS
-------------------------------------------------------------- */
+/* ---------------------------------------
+   STATIC FILES
+---------------------------------------- */
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-/* -------------------------------------------------------------
-   TEST ROUTE
-------------------------------------------------------------- */
+/* ---------------------------------------
+   BASE ROUTE
+---------------------------------------- */
 app.get("/", (req, res) => {
   res.send("GreyCat API Online ✔");
 });
 
-/* -------------------------------------------------------------
+/* ---------------------------------------
    API ROUTES
-------------------------------------------------------------- */
+---------------------------------------- */
 app.use("/upload", uploadRoutes);
+
+// 🔥 Updated Auth System
 app.use("/auth", authRoutes);
+
 app.use("/user", userRoutes);
 app.use("/post", postRoutes);
 app.use("/follow", followRoutes);
@@ -147,36 +145,32 @@ app.use("/settings", settingsRoutes);
 app.use("/channel", channelRoutes);
 app.use("/github", githubRoutes);
 
-/* -------------------------------------------------------------
-   SOCKET.IO SERVER
-------------------------------------------------------------- */
+/* ---------------------------------------
+   SOCKET.IO
+---------------------------------------- */
 const httpServer = http.createServer(app);
 
 const io = new IOServer(httpServer, {
-  cors: corsOptions,
+  cors: {
+    origin: allowedOrigins,
+    credentials: true,
+  },
   pingTimeout: 60000,
   pingInterval: 25000,
 });
 
-/* Save io globally */
 app.set("io", io);
 
-/* -------------------------------------------------------------
-   SOCKET HANDLERS
-------------------------------------------------------------- */
 io.on("connection", (socket) => {
-  console.log("🔥 Socket connected:", socket.id);
+  console.log("Socket connected:", socket.id);
 
-  // Join channel room
   socket.on("joinRoom", (channelId) => {
     socket.join(channelId);
-    console.log(`✅ User ${socket.id} joined room: ${channelId}`);
+    console.log(`✅ ${socket.id} joined: ${channelId}`);
   });
 
-  // Leave channel room
   socket.on("leaveRoom", (channelId) => {
     socket.leave(channelId);
-    console.log(`⚠️ User ${socket.id} left room: ${channelId}`);
   });
 
   socket.on("disconnect", () => {
@@ -184,9 +178,9 @@ io.on("connection", (socket) => {
   });
 });
 
-/* -------------------------------------------------------------
-   ERROR HANDLER
-------------------------------------------------------------- */
+/* ---------------------------------------
+   GLOBAL ERROR HANDLER
+---------------------------------------- */
 app.use((err, req, res, next) => {
   console.error("Server Error:", err);
   res.status(500).json({
@@ -195,9 +189,9 @@ app.use((err, req, res, next) => {
   });
 });
 
-/* -------------------------------------------------------------
-   START SERVER
-------------------------------------------------------------- */
+/* ---------------------------------------
+   CONNECT DB + RUN SERVER
+---------------------------------------- */
 connectDB();
 
 httpServer.listen(PORT, () =>

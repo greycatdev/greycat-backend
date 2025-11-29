@@ -44,11 +44,6 @@ passport.use(
 
           return done(null, user);
         }
-
-        /* ----------------------------------------------------
-           EXISTING USER → DO NOT OVERRIDE MANUAL UPDATES
-           Only fill missing fields, never overwrite them.
-        ----------------------------------------------------- */
         let updated = false;
 
         // Attach Google ID if missing (account linking)
@@ -80,9 +75,6 @@ passport.use(
   )
 );
 
-/* -------------------------------------------------------
-   PASSPORT SESSION HANDLERS
--------------------------------------------------------- */
 passport.serializeUser((user, done) => {
   done(null, user._id); 
 });

@@ -1,5 +1,9 @@
 import { Router } from "express";
 import passport from "passport";
+import bcrypt from "bcrypt";
+import crypto from "crypto";
+import nodemailer from "nodemailer";
+import User from "../models/User.js"; // adjust path if different
 
 const router = Router();
 
@@ -13,97 +17,224 @@ const SET_USERNAME_URL = `${CLIENT_URL}/set-username`;
 const HOME_URL = `${CLIENT_URL}/`;
 
 /* -------------------------------------------------------
-   1. GOOGLE AUTH
+   0️⃣ SMTP Email Setup
+-------------------------------------------------------- */
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS, // App Password
+  },
+});
+
+/* -------------------------------------------------------
+   1️⃣ EMAIL + PASSWORD — SIGNUP
+-------------------------------------------------------- */
+router.post("/signup", async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    if (!name || !email || !password)
+      return res.json({ success: false, message: "All fields required" });
+
+    const exists = await User.findOne({ email });
+    if (exists)
+      return res.json({ success: false, message: "Email already registered" });
+
+    const hashed = await bcrypt.hash(password, 10);
+
+    await User.create({
+      name,
+      email,
+      password: hashed,
+    });
+
+    return res.json({ success: true, message: "Account created" });
+  } catch (err) {
+    console.error("SIGNUP ERROR:", err);
+    return res.json({ success: false, message: "Server error" });
+  }
+});
+
+/* -------------------------------------------------------
+   2️⃣ EMAIL + PASSWORD — LOGIN
+-------------------------------------------------------- */
+router.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password)
+      return res.json({ success: false, message: "Email and password required" });
+
+    const user = await User.findOne({ email });
+    if (!user)
+      return res.json({ success: false, message: "User not found" });
+
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid)
+      return res.json({ success: false, message: "Incorrect password" });
+
+    // Set session
+    req.session.user = {
+      id: user._id,
+      email: user.email,
+      name: user.name,
+    };
+
+    return res.json({
+      success: true,
+      message: "Login successful",
+      user: req.session.user,
+    });
+  } catch (err) {
+    console.error("LOGIN ERROR:", err);
+    return res.json({ success: false, message: "Server error" });
+  }
+});
+
+/* -------------------------------------------------------
+   3️⃣ FORGOT PASSWORD — SEND RESET LINK
+-------------------------------------------------------- */
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email)
+      return res.json({ success: false, message: "Email required" });
+
+    const user = await User.findOne({ email });
+    if (!user)
+      return res.json({ success: false, message: "Email not found" });
+
+    const token = crypto.randomBytes(32).toString("hex");
+
+    user.resetToken = token;
+    user.resetTokenExpiry = Date.now() + 10 * 60 * 1000; // 10 min
+    await user.save();
+
+    const resetLink = `${CLIENT_URL}/reset-password/${token}`;
+
+    await transporter.sendMail({
+      from: `"GreyCat Support" <${process.env.EMAIL_USER}>`,
+      to: user.email,
+      subject: "Reset Your GreyCat Password",
+      html: `
+        <h2>Password Reset Request</h2>
+        <p>Click below to reset your password:</p>
+
+        <a href="${resetLink}" 
+           style="padding:10px 18px;background:#2f81f7;color:white;text-decoration:none;border-radius:6px;">
+           Reset Password
+        </a>
+
+        <p>This link expires in <strong>10 minutes</strong>.</p>
+      `,
+    });
+
+    return res.json({ success: true, message: "Reset link sent" });
+  } catch (err) {
+    console.error("FORGOT ERROR:", err);
+    return res.json({ success: false, message: "Server error" });
+  }
+});
+
+/* -------------------------------------------------------
+   4️⃣ RESET PASSWORD — TOKEN VALIDATION
+-------------------------------------------------------- */
+router.post("/reset-password/:token", async (req, res) => {
+  try {
+    const { password } = req.body;
+    const { token } = req.params;
+
+    if (!password)
+      return res.json({ success: false, message: "Password required" });
+
+    const user = await User.findOne({
+      resetToken: token,
+      resetTokenExpiry: { $gt: Date.now() },
+    });
+
+    if (!user)
+      return res.json({ success: false, message: "Invalid or expired token" });
+
+    user.password = await bcrypt.hash(password, 10);
+    user.resetToken = undefined;
+    user.resetTokenExpiry = undefined;
+    await user.save();
+
+    return res.json({ success: true, message: "Password reset successful" });
+  } catch (err) {
+    console.error("RESET ERROR:", err);
+    return res.json({ success: false, message: "Server error" });
+  }
+});
+
+/* -------------------------------------------------------
+   5️⃣ GOOGLE AUTH
 -------------------------------------------------------- */
 router.get(
   "/google",
-  passport.authenticate("google", {
-    scope: ["profile", "email"],
-  })
+  passport.authenticate("google", { scope: ["profile", "email"] })
 );
 
 router.get(
   "/google/callback",
-  passport.authenticate("google", {
-    failureRedirect: LOGIN_URL,
-  }),
+  passport.authenticate("google", { failureRedirect: LOGIN_URL }),
   (req, res, next) => {
-    // ⭐ CRITICAL FIX — ensure cookie is saved BEFORE redirect
     req.session.save((err) => {
       if (err) return next(err);
-
-      if (!req.user.username) {
-        return res.redirect(SET_USERNAME_URL);
-      }
-
+      if (!req.user.username) return res.redirect(SET_USERNAME_URL);
       return res.redirect(HOME_URL);
     });
   }
 );
 
 /* -------------------------------------------------------
-   2. GITHUB AUTH
+   6️⃣ GITHUB AUTH
 -------------------------------------------------------- */
 router.get(
   "/github",
-  passport.authenticate("github", {
-    scope: ["user:email"],
-  })
+  passport.authenticate("github", { scope: ["user:email"] })
 );
 
 router.get(
   "/github/callback",
-  passport.authenticate("github", {
-    failureRedirect: LOGIN_URL,
-  }),
+  passport.authenticate("github", { failureRedirect: LOGIN_URL }),
   (req, res, next) => {
-    // ⭐ CRITICAL FIX — ensure cookie is saved BEFORE redirect
     req.session.save((err) => {
       if (err) return next(err);
-
-      if (!req.user.username) {
-        return res.redirect(SET_USERNAME_URL);
-      }
-
+      if (!req.user.username) return res.redirect(SET_USERNAME_URL);
       return res.redirect(HOME_URL);
     });
   }
 );
 
 /* -------------------------------------------------------
-   3. CHECK LOGGED-IN USER
+   7️⃣ CHECK USER AUTH
 -------------------------------------------------------- */
 router.get("/user", (req, res) => {
+  // OAuth user
   if (req.isAuthenticated() && req.user) {
-    return res.json({
-      authenticated: true,
-      user: req.user,
-    });
+    return res.json({ authenticated: true, user: req.user });
   }
 
-  return res.json({
-    authenticated: false,
-    user: null,
-  });
+  // Email + password login session
+  if (req.session.user) {
+    return res.json({ authenticated: true, user: req.session.user });
+  }
+
+  return res.json({ authenticated: false, user: null });
 });
 
 /* -------------------------------------------------------
-   4. LOGOUT (Fully Production-Ready)
+   8️⃣ LOGOUT
 -------------------------------------------------------- */
 router.get("/logout", (req, res) => {
-  req.logout((err) => {
-    if (err) {
-      return res.redirect(`${LOGIN_URL}?error=logout_failed`);
-    }
-
+  req.logout(() => {
     req.session.destroy(() => {
       res.clearCookie("connect.sid", {
         httpOnly: true,
         secure: true,
         sameSite: "none",
-        path: "/",
       });
-
       return res.redirect(`${LOGIN_URL}?logout=success`);
     });
   });

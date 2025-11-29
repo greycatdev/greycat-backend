@@ -14,10 +14,21 @@ const normalizeURL = (url) => (url ? url.trim() : "");
 const userSchema = new mongoose.Schema(
   {
     /* ---------------------------------------------
-       AUTH IDs
+       AUTH IDs (OAuth)
     --------------------------------------------- */
     googleId: { type: String, index: true },
     githubId: { type: String, index: true },
+
+    /* ---------------------------------------------
+       EMAIL + PASSWORD AUTH (NEW)
+    --------------------------------------------- */
+    password: {
+      type: String,
+      select: false, // security — do not send hash automatically
+    },
+
+    resetToken: String,
+    resetTokenExpiry: Date,
 
     /* ---------------------------------------------
        PROFILE INFO
