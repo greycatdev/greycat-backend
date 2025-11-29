@@ -47,7 +47,7 @@ router.post("/signup", async (req, res) => {
       name,
       email,
       password: hashed,
-      username: null, // ⭐ forced NULL for username flow
+      username: null, // ensure username flow starts at null
     });
 
     return res.json({ success: true, message: "Account created" });
@@ -77,7 +77,7 @@ router.post("/login", async (req, res) => {
     if (!valid)
       return res.json({ success: false, message: "Incorrect password" });
 
-    // ⭐ FIX: Include username
+    // Save session
     req.session.user = {
       _id: user._id,
       name: user.name,
@@ -210,7 +210,7 @@ router.get(
    7️⃣ CHECK AUTH (Frontend uses this)
 -------------------------------------------------------- */
 router.get("/user", (req, res) => {
-  // OAuth user (Google/Github)
+  // OAuth User
   if (req.isAuthenticated() && req.user) {
     return res.json({
       authenticated: true,
@@ -223,16 +223,11 @@ router.get("/user", (req, res) => {
     });
   }
 
-  // Email/password session user
+  // Session user
   if (req.session.user) {
     return res.json({
       authenticated: true,
-      user: {
-        _id: req.session.user._id,
-        name: req.session.user.name,
-        email: req.session.user.email,
-        username: req.session.user.username || null,  // ⭐ Fix
-      },
+      user: req.session.user,
     });
   }
 

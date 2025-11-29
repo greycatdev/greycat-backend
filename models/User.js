@@ -16,15 +16,15 @@ const userSchema = new mongoose.Schema(
     /* ---------------------------------------------
        AUTH IDs (OAuth Providers)
     --------------------------------------------- */
-    googleId: { type: String, index: true },
-    githubId: { type: String, index: true },
+    googleId: { type: String, unique: false, sparse: true },
+    githubId: { type: String, unique: false, sparse: true },
 
     /* ---------------------------------------------
        EMAIL + PASSWORD AUTH
     --------------------------------------------- */
     password: {
       type: String,
-      select: false, // IMPORTANT: Hidden unless explicitly selected
+      select: false,
     },
 
     resetToken: { type: String },
@@ -36,7 +36,7 @@ const userSchema = new mongoose.Schema(
     username: {
       type: String,
       unique: true,
-      sparse: true, // allows null without duplicate error
+      sparse: true,
       trim: true,
       lowercase: true,
       index: true,

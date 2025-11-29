@@ -1,4 +1,3 @@
-// config/passport.js
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -6,9 +5,6 @@ import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import User from "../models/User.js";
 
-/* -------------------------------------------------------
-   GOOGLE AUTH STRATEGY — CLEAN, STABLE, NON-OVERRIDING
--------------------------------------------------------- */
 passport.use(
   new GoogleStrategy(
     {
@@ -19,46 +15,47 @@ passport.use(
 
     async (accessToken, refreshToken, profile, done) => {
       try {
-        const email = profile.emails?.[0]?.value || null;
+        // ⭐ SAFE EMAIL HANDLING (prevents duplicate key crash)
+        const email =
+          profile.emails?.[0]?.value ||
+          `google_${profile.id}@no-email.google.com`;
+
         const googlePhoto = profile.photos?.[0]?.value || "";
         const googleName = profile.displayName || "";
 
-        // 1️⃣ Check existing user by googleId
+        // 1️⃣ Find user by googleId
         let user = await User.findOne({ googleId: profile.id });
 
-        // 2️⃣ If not found, try email match (handles users created before linking Google)
-        if (!user && email) {
+        // 2️⃣ If not found, try email match
+        if (!user) {
           user = await User.findOne({ email });
         }
 
-        /* ----------------------------------------------------
-           FIRST-TIME LOGIN → create a new user
-        ----------------------------------------------------- */
+        // 3️⃣ Create new user
         if (!user) {
           user = await User.create({
             googleId: profile.id,
             name: googleName,
-            email: email,
+            email,
             photo: googlePhoto,
           });
 
           return done(null, user);
         }
+
+        // 4️⃣ Update missing fields
         let updated = false;
 
-        // Attach Google ID if missing (account linking)
         if (!user.googleId) {
           user.googleId = profile.id;
           updated = true;
         }
 
-        // Only assign Google photo if the user hasn't set a custom one
         if (!user.photo && googlePhoto) {
           user.photo = googlePhoto;
           updated = true;
         }
 
-        // Only assign Google display name if empty
         if (!user.name && googleName) {
           user.name = googleName;
           updated = true;
@@ -76,7 +73,7 @@ passport.use(
 );
 
 passport.serializeUser((user, done) => {
-  done(null, user._id); 
+  done(null, user._id);
 });
 
 passport.deserializeUser(async (id, done) => {

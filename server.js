@@ -17,10 +17,10 @@ import { connectDB } from "./config/db.js";
 import "./auth/google.js";
 import "./auth/github.js";
 
-// Updated auth system (Email + Password + OAuth)
+// Updated auth system
 import authRoutes from "./routes/authRoutes.js";
 
-// Other existing routes
+// Other routes
 import userRoutes from "./routes/userRoutes.js";
 import postRoutes from "./routes/postRoutes.js";
 import followRoutes from "./routes/followRoutes.js";
@@ -32,21 +32,23 @@ import settingsRoutes from "./routes/settingsRoutes.js";
 import channelRoutes from "./routes/channelRoutes.js";
 import uploadRoutes from "./routes/upload.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 dotenv.config();
-const app = express();
 
+const app = express();
 const PORT = process.env.PORT || 5000;
 const CLIENT_URL = process.env.CLIENT_URL;
 const MONGO_URI = process.env.MONGO_URI;
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 app.set("trust proxy", 1);
 
-/* ---------------------------------------
-   SESSION CONFIG (Production Ready)
----------------------------------------- */
+/* ---------------------------------------------------------
+   SESSION CONFIG (Fixed for OAuth + Render/Vercel)
+--------------------------------------------------------- */
+const isProduction = process.env.NODE_ENV === "production";
+
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "greycat_secret",
@@ -59,44 +61,46 @@ app.use(
     }),
     cookie: {
       httpOnly: true,
-      secure: true, // required on vercel, https
-      sameSite: "none",
+      secure: isProduction,     // ❗ Works locally & on https
+      sameSite: isProduction ? "none" : "lax",
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
   })
 );
 
+/* ---------------------------------------------------------
+   PASSPORT INIT
+--------------------------------------------------------- */
 app.use(passport.initialize());
 app.use(passport.session());
 
-/* ---------------------------------------
-   CORS CONFIG
----------------------------------------- */
+/* ---------------------------------------------------------
+   CORS CONFIG (Fixed for Render + Vercel)
+--------------------------------------------------------- */
 const allowedOrigins = [
   CLIENT_URL,
   "http://localhost:5173",
   "http://localhost:3000",
+  "https://*.vercel.app",
 ];
-
-const vercelPattern = /^https:\/\/.*vercel\.app$/;
 
 app.use(
   cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin) || vercelPattern.test(origin)) {
-        callback(null, true);
-      } else {
-        console.log("❌ CORS blocked:", origin);
-        callback(new Error("Not allowed by CORS"));
+    origin: function (origin, cb) {
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.includes(origin) || /\.vercel\.app$/.test(origin)) {
+        return cb(null, true);
       }
+      console.log("❌ CORS blocked:", origin);
+      return cb(new Error("Not allowed by CORS"));
     },
     credentials: true,
   })
 );
 
-/* ---------------------------------------
-   SECURITY + PERFORMANCE
----------------------------------------- */
+/* ---------------------------------------------------------
+   SECURITY & PERFORMANCE
+--------------------------------------------------------- */
 app.use(
   helmet({
     crossOriginEmbedderPolicy: false,
@@ -111,30 +115,26 @@ app.use(
   rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 500,
-    message: "Too many requests. Try later.",
   })
 );
 
-/* ---------------------------------------
-   STATIC FILES
----------------------------------------- */
+/* ---------------------------------------------------------
+   STATIC
+--------------------------------------------------------- */
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-/* ---------------------------------------
+/* ---------------------------------------------------------
    BASE ROUTE
----------------------------------------- */
+--------------------------------------------------------- */
 app.get("/", (req, res) => {
   res.send("GreyCat API Online ✔");
 });
 
-/* ---------------------------------------
+/* ---------------------------------------------------------
    API ROUTES
----------------------------------------- */
+--------------------------------------------------------- */
 app.use("/upload", uploadRoutes);
-
-// 🔥 Updated Auth System
 app.use("/auth", authRoutes);
-
 app.use("/user", userRoutes);
 app.use("/post", postRoutes);
 app.use("/follow", followRoutes);
@@ -145,9 +145,9 @@ app.use("/settings", settingsRoutes);
 app.use("/channel", channelRoutes);
 app.use("/github", githubRoutes);
 
-/* ---------------------------------------
-   SOCKET.IO
----------------------------------------- */
+/* ---------------------------------------------------------
+   SOCKET.IO (Fixed for Render/Vercel)
+--------------------------------------------------------- */
 const httpServer = http.createServer(app);
 
 const io = new IOServer(httpServer, {
@@ -166,32 +166,26 @@ io.on("connection", (socket) => {
 
   socket.on("joinRoom", (channelId) => {
     socket.join(channelId);
-    console.log(`✅ ${socket.id} joined: ${channelId}`);
   });
 
-  socket.on("leaveRoom", (channelId) => {
-    socket.leave(channelId);
-  });
+  socket.on("leaveRoom", (channelId) => socket.leave(channelId));
 
   socket.on("disconnect", () => {
-    console.log("❌ Socket disconnected:", socket.id);
+    console.log("Socket disconnected:", socket.id);
   });
 });
 
-/* ---------------------------------------
+/* ---------------------------------------------------------
    GLOBAL ERROR HANDLER
----------------------------------------- */
+--------------------------------------------------------- */
 app.use((err, req, res, next) => {
   console.error("Server Error:", err);
-  res.status(500).json({
-    success: false,
-    message: "Server error",
-  });
+  res.status(500).json({ success: false, message: "Server error" });
 });
 
-/* ---------------------------------------
-   CONNECT DB + RUN SERVER
----------------------------------------- */
+/* ---------------------------------------------------------
+   START SERVER
+--------------------------------------------------------- */
 connectDB();
 
 httpServer.listen(PORT, () =>

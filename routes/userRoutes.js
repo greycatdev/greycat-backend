@@ -5,11 +5,11 @@ import { uploadProfile } from "../utils/upload.js";
 const router = express.Router();
 
 /* -----------------------------------------------------
-   AUTH MIDDLEWARE (Supports OAuth & Email Sessions)
+   AUTH MIDDLEWARE (OAuth + Session Safe)
 ----------------------------------------------------- */
 function ensureAuth(req, res, next) {
-  const oauthUser = req.user?._id;
-  const sessionUser = req.session.user?.id || req.session.user?._id;
+  const oauthUser = req.user?.id || req.user?._id;
+  const sessionUser = req.session.user?._id;
 
   if (!oauthUser && !sessionUser) {
     return res.status(401).json({
@@ -18,9 +18,7 @@ function ensureAuth(req, res, next) {
     });
   }
 
-  // Normalize to a single ID property
   req.authUserId = oauthUser || sessionUser;
-
   next();
 }
 
@@ -31,8 +29,8 @@ router.get("/check-username/:username", async (req, res) => {
   try {
     const username = req.params.username.toLowerCase().trim();
     const exists = await User.findOne({ username }).lean();
-
     return res.json({ exists: !!exists });
+
   } catch (err) {
     console.error("CHECK USERNAME ERROR:", err);
     return res.status(500).json({ error: "Server error" });
@@ -40,7 +38,7 @@ router.get("/check-username/:username", async (req, res) => {
 });
 
 /* -----------------------------------------------------
-   SET USERNAME (first-time setup)
+   SET USERNAME — ONE TIME ONLY
 ------------------------------------------------------ */
 router.post("/set-username", async (req, res) => {
   try {
@@ -58,6 +56,19 @@ router.post("/set-username", async (req, res) => {
       });
     }
 
+    const user = await User.findById(userId).lean();
+
+    if (!user)
+      return res.json({ success: false, message: "User not found" });
+
+    // ❗ DO NOT ALLOW CHANGING USERNAME IF ALREADY SET
+    if (user.username) {
+      return res.json({
+        success: false,
+        message: "Username already set — cannot change",
+      });
+    }
+
     const exists = await User.findOne({ username: final }).lean();
     if (exists) {
       return res.json({
@@ -68,10 +79,10 @@ router.post("/set-username", async (req, res) => {
 
     await User.findByIdAndUpdate(userId, { username: final });
 
-    /* ⭐ UPDATE SESSION (very important!) */
+    // Update session
     if (req.session.user) {
       req.session.user.username = final;
-      req.session.save();
+      await req.session.save();
     }
 
     return res.json({ success: true });
@@ -83,30 +94,21 @@ router.post("/set-username", async (req, res) => {
 });
 
 /* -----------------------------------------------------
-   PUBLIC PROFILE BY USERNAME
+   PUBLIC PROFILE (Email hidden!)
 ------------------------------------------------------ */
 router.get("/by-username/:username", async (req, res) => {
   try {
     const username = req.params.username.toLowerCase().trim();
 
-    const user = await User.findOne({ username }).select(`
-      username
-      name
-      email
-      photo
-      bio
-      skills
-      social
-      location
-      preferences
-      privacy
-      createdAt
-    `);
+    const user = await User.findOne({ username })
+      .select("username name photo bio skills social location preferences privacy createdAt")
+      .lean();
 
     if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
     }
 
     return res.json({ success: true, user });
@@ -118,7 +120,7 @@ router.get("/by-username/:username", async (req, res) => {
 });
 
 /* -----------------------------------------------------
-   UPDATE LOGGED-IN USER PROFILE
+   UPDATE PROFILE (Merge instead of overwrite)
 ------------------------------------------------------ */
 router.put("/update", ensureAuth, async (req, res) => {
   try {
@@ -131,14 +133,14 @@ router.put("/update", ensureAuth, async (req, res) => {
     if (skills !== undefined) {
       updates.skills = Array.isArray(skills)
         ? skills.map((s) => s.trim().toLowerCase())
-        : skills
-            .split(",")
-            .map((s) => s.trim().toLowerCase())
-            .filter(Boolean);
+        : skills.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
     }
 
-    if (social) updates.social = social;
-    if (location) updates.location = location;
+    // Merge social links
+    if (social) updates.social = { ...social };
+
+    // Merge location
+    if (location) updates.location = { ...location };
 
     updates.updatedAt = Date.now();
 
@@ -164,22 +166,14 @@ router.post(
   async (req, res) => {
     try {
       if (!req.file) {
-        return res.json({
-          success: false,
-          message: "No file uploaded",
-        });
+        return res.json({ success: false, message: "No file uploaded" });
       }
 
       const imageURL =
-        req.file.secure_url ||
-        req.file.url ||
-        req.file.path?.replace(/\\/g, "/");
+        req.file.path || req.file.secure_url || req.file.url;
 
       if (!imageURL) {
-        return res.json({
-          success: false,
-          message: "Upload failed",
-        });
+        return res.json({ success: false, message: "Upload failed" });
       }
 
       const updatedUser = await User.findByIdAndUpdate(
@@ -188,16 +182,14 @@ router.post(
         { new: true }
       ).select("photo updatedAt");
 
-      return res.json({
-        success: true,
-        photo: updatedUser.photo,
-      });
+      return res.json({ success: true, photo: updatedUser.photo });
 
     } catch (err) {
       console.error("UPLOAD PHOTO ERROR:", err);
-      return res
-        .status(500)
-        .json({ success: false, message: "Upload failed" });
+      return res.status(500).json({
+        success: false,
+        message: "Upload failed",
+      });
     }
   }
 );
@@ -217,7 +209,6 @@ router.delete("/delete-account", ensureAuth, async (req, res) => {
           httpOnly: true,
           secure: true,
           sameSite: "none",
-          path: "/",
         });
 
         return res.json({

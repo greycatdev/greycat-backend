@@ -16,24 +16,27 @@ passport.use(
 
     async (accessToken, refreshToken, profile, done) => {
       try {
-
-        const email =
-          profile.emails?.[0]?.value || null;
-
+        const githubId = profile.id;
         const githubPhoto = profile.photos?.[0]?.value || "";
         const githubName = profile.displayName || profile.username;
 
-  
-        let user = await User.findOne({ githubId: profile.id });
+        // ⭐ SAFEST EMAIL HANDLING
+        const email =
+          profile.emails?.[0]?.value ||
+          `github_${githubId}@no-email.github.com`;
 
+        // 1️⃣ Try find by GitHub ID
+        let user = await User.findOne({ githubId });
 
-        if (!user && email) {
+        // 2️⃣ If not found, try find by email (same person)
+        if (!user) {
           user = await User.findOne({ email });
         }
 
+        // 3️⃣ Create new user
         if (!user) {
           user = await User.create({
-            githubId: profile.id,
+            githubId,
             name: githubName,
             email,
             photo: githubPhoto,
@@ -42,14 +45,14 @@ passport.use(
           return done(null, user);
         }
 
+        // 4️⃣ Update missing fields
         let updated = false;
 
         if (!user.githubId) {
-          user.githubId = profile.id;
+          user.githubId = githubId;
           updated = true;
         }
 
-     
         if (!user.photo && githubPhoto) {
           user.photo = githubPhoto;
           updated = true;
