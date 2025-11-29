@@ -13,14 +13,12 @@ import { Server as IOServer } from "socket.io";
 import { fileURLToPath } from "url";
 import { connectDB } from "./config/db.js";
 
-// OAuth strategies
+// Load OAuth strategies
 import "./auth/google.js";
 import "./auth/github.js";
 
-// Updated auth system
+// Routes
 import authRoutes from "./routes/authRoutes.js";
-
-// Other routes
 import userRoutes from "./routes/userRoutes.js";
 import postRoutes from "./routes/postRoutes.js";
 import followRoutes from "./routes/followRoutes.js";
@@ -42,10 +40,11 @@ const MONGO_URI = process.env.MONGO_URI;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// TRUST PROXY for Vercel/Render HTTPS
 app.set("trust proxy", 1);
 
 /* ---------------------------------------------------------
-   SESSION CONFIG (Fixed for OAuth + Render/Vercel)
+   SESSION CONFIG (MOST IMPORTANT)
 --------------------------------------------------------- */
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -58,12 +57,13 @@ app.use(
     store: MongoStore.create({
       mongoUrl: MONGO_URI,
       collectionName: "sessions",
+      ttl: 60 * 60 * 24 * 7, // 7 days
     }),
     cookie: {
       httpOnly: true,
-      secure: isProduction,     // ❗ Works locally & on https
-      sameSite: isProduction ? "none" : "lax",
-      maxAge: 1000 * 60 * 60 * 24 * 7,
+      secure: isProduction,          // ✔ Only true on https
+      sameSite: isProduction ? "none" : "lax", // ✔ Required for frontend auth
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
     },
   })
 );
@@ -74,37 +74,40 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
+
 /* ---------------------------------------------------------
-   CORS CONFIG (Fixed for Render + Vercel)
+   CORS CONFIG — FINAL, CORRECT VERSION
 --------------------------------------------------------- */
 const allowedOrigins = [
   CLIENT_URL,
   "http://localhost:5173",
   "http://localhost:3000",
-  "https://*.vercel.app",
 ];
 
 app.use(
   cors({
     origin: function (origin, cb) {
       if (!origin) return cb(null, true);
-      if (allowedOrigins.includes(origin) || /\.vercel\.app$/.test(origin)) {
-        return cb(null, true);
-      }
+
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+
+      if (/https:\/\/.*\.vercel\.app$/.test(origin)) return cb(null, true);
+
       console.log("❌ CORS blocked:", origin);
       return cb(new Error("Not allowed by CORS"));
     },
-    credentials: true,
+    credentials: true, // ⭐ MUST BE TRUE FOR SESSION COOKIE
   })
 );
 
+
 /* ---------------------------------------------------------
-   SECURITY & PERFORMANCE
+   SECURITY + PERFORMANCE
 --------------------------------------------------------- */
 app.use(
   helmet({
-    crossOriginEmbedderPolicy: false,
     contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
   })
 );
 
@@ -118,8 +121,9 @@ app.use(
   })
 );
 
+
 /* ---------------------------------------------------------
-   STATIC
+   STATIC FILES
 --------------------------------------------------------- */
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
@@ -133,8 +137,8 @@ app.get("/", (req, res) => {
 /* ---------------------------------------------------------
    API ROUTES
 --------------------------------------------------------- */
-app.use("/upload", uploadRoutes);
 app.use("/auth", authRoutes);
+app.use("/upload", uploadRoutes);
 app.use("/user", userRoutes);
 app.use("/post", postRoutes);
 app.use("/follow", followRoutes);
@@ -146,7 +150,7 @@ app.use("/channel", channelRoutes);
 app.use("/github", githubRoutes);
 
 /* ---------------------------------------------------------
-   SOCKET.IO (Fixed for Render/Vercel)
+   SOCKET.IO
 --------------------------------------------------------- */
 const httpServer = http.createServer(app);
 
@@ -168,7 +172,9 @@ io.on("connection", (socket) => {
     socket.join(channelId);
   });
 
-  socket.on("leaveRoom", (channelId) => socket.leave(channelId));
+  socket.on("leaveRoom", (channelId) => {
+    socket.leave(channelId);
+  });
 
   socket.on("disconnect", () => {
     console.log("Socket disconnected:", socket.id);

@@ -17,18 +17,27 @@ const SET_USERNAME_URL = `${CLIENT_URL}/set-username`;
 const HOME_URL = `${CLIENT_URL}/`;
 
 /* -------------------------------------------------------
-   SMTP EMAIL SETUP
+   SMTP EMAIL SETUP — FIXED FOR RENDER + GMAIL
 -------------------------------------------------------- */
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp.gmail.com",
+  port: 465,
+  secure: true,
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    pass: process.env.EMAIL_PASS, // MUST be Gmail App Password
   },
 });
 
+// Check transporter status
+transporter.verify((err, success) => {
+  if (err) console.log("❌ Email Error:", err);
+  else console.log("📧 Email server ready");
+});
+
+
 /* -------------------------------------------------------
-   1️⃣ SIGNUP — Name, Email, Password
+   1️⃣ SIGNUP
 -------------------------------------------------------- */
 router.post("/signup", async (req, res) => {
   try {
@@ -47,7 +56,7 @@ router.post("/signup", async (req, res) => {
       name,
       email,
       password: hashed,
-      username: null, // ensure username flow starts at null
+      username: null,
     });
 
     return res.json({ success: true, message: "Account created" });
@@ -58,18 +67,18 @@ router.post("/signup", async (req, res) => {
   }
 });
 
+
 /* -------------------------------------------------------
-   2️⃣ LOGIN — Email + Password
+   2️⃣ LOGIN
 -------------------------------------------------------- */
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
     if (!email || !password)
-      return res.json({ success: false, message: "Email and password required" });
+      return res.json({ success: false, message: "Email & password required" });
 
     const user = await User.findOne({ email }).select("+password");
-
     if (!user)
       return res.json({ success: false, message: "User not found" });
 
@@ -77,7 +86,6 @@ router.post("/login", async (req, res) => {
     if (!valid)
       return res.json({ success: false, message: "Incorrect password" });
 
-    // Save session
     req.session.user = {
       _id: user._id,
       name: user.name,
@@ -97,8 +105,9 @@ router.post("/login", async (req, res) => {
   }
 });
 
+
 /* -------------------------------------------------------
-   3️⃣ FORGOT PASSWORD
+   3️⃣ FORGOT PASSWORD — FIXED
 -------------------------------------------------------- */
 router.post("/forgot-password", async (req, res) => {
   try {
@@ -113,9 +122,10 @@ router.post("/forgot-password", async (req, res) => {
 
     const token = crypto.randomBytes(32).toString("hex");
 
-    user.resetToken = token;
-    user.resetTokenExpiry = Date.now() + 10 * 60 * 1000;
-    await user.save();
+    await User.findByIdAndUpdate(user._id, {
+      resetToken: token,
+      resetTokenExpiry: Date.now() + 10 * 60 * 1000,
+    });
 
     const resetLink = `${CLIENT_URL}/reset-password/${token}`;
 
@@ -125,6 +135,7 @@ router.post("/forgot-password", async (req, res) => {
       subject: "Reset Your GreyCat Password",
       html: `
         <h2>Password Reset Request</h2>
+        <p>Click the button below to reset your password:</p>
         <a href="${resetLink}"
            style="padding:10px 18px;background:#2f81f7;color:white;text-decoration:none;border-radius:6px;">
            Reset Password
@@ -140,6 +151,7 @@ router.post("/forgot-password", async (req, res) => {
     return res.json({ success: false, message: "Server error" });
   }
 });
+
 
 /* -------------------------------------------------------
    4️⃣ RESET PASSWORD
@@ -158,13 +170,15 @@ router.post("/reset-password/:token", async (req, res) => {
     });
 
     if (!user)
-      return res.json({ success: false, message: "Invalid or expired token" });
+      return res.json({ success: false, message: "Invalid or expired link" });
 
-    user.password = await bcrypt.hash(password, 10);
-    user.resetToken = undefined;
-    user.resetTokenExpiry = undefined;
+    const hashed = await bcrypt.hash(password, 10);
 
-    await user.save();
+    await User.findByIdAndUpdate(user._id, {
+      password: hashed,
+      resetToken: undefined,
+      resetTokenExpiry: undefined,
+    });
 
     return res.json({ success: true, message: "Password reset successful" });
 
@@ -173,6 +187,7 @@ router.post("/reset-password/:token", async (req, res) => {
     return res.json({ success: false, message: "Server error" });
   }
 });
+
 
 /* -------------------------------------------------------
    5️⃣ GOOGLE AUTH
@@ -190,6 +205,7 @@ router.get(
   }
 );
 
+
 /* -------------------------------------------------------
    6️⃣ GITHUB AUTH
 -------------------------------------------------------- */
@@ -206,11 +222,11 @@ router.get(
   }
 );
 
+
 /* -------------------------------------------------------
-   7️⃣ CHECK AUTH (Frontend uses this)
+   7️⃣ CHECK AUTH
 -------------------------------------------------------- */
 router.get("/user", (req, res) => {
-  // OAuth User
   if (req.isAuthenticated() && req.user) {
     return res.json({
       authenticated: true,
@@ -223,16 +239,13 @@ router.get("/user", (req, res) => {
     });
   }
 
-  // Session user
   if (req.session.user) {
-    return res.json({
-      authenticated: true,
-      user: req.session.user,
-    });
+    return res.json({ authenticated: true, user: req.session.user });
   }
 
   return res.json({ authenticated: false, user: null });
 });
+
 
 /* -------------------------------------------------------
    8️⃣ LOGOUT
