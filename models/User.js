@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
 /* -------------------------------------------------------
-   HELPERS → Normalizing Data
+   HELPERS → Normalize Data
 -------------------------------------------------------- */
 const normalizeSkills = (arr) =>
   arr.map((s) => s.trim().toLowerCase()).filter(Boolean);
@@ -14,49 +14,53 @@ const normalizeURL = (url) => (url ? url.trim() : "");
 const userSchema = new mongoose.Schema(
   {
     /* ---------------------------------------------
-       AUTH IDs (OAuth Providers)
+       OAUTH PROVIDER IDS (Not unique for safety)
     --------------------------------------------- */
-    googleId: { type: String, unique: false, sparse: true },
-    githubId: { type: String, unique: false, sparse: true },
+    googleId: { type: String, sparse: true, default: null },
+    githubId: { type: String, sparse: true, default: null },
 
     /* ---------------------------------------------
-       EMAIL + PASSWORD AUTH
+       EMAIL LOGIN
     --------------------------------------------- */
+    email: {
+      type: String,
+      required: true,
+      unique: true,        // safe — emails always required
+      trim: true,
+      lowercase: true,
+      index: true,
+    },
+
     password: {
       type: String,
       select: false,
     },
 
-    resetToken: { type: String },
-    resetTokenExpiry: { type: Date },
+    resetToken: String,
+    resetTokenExpiry: Date,
 
     /* ---------------------------------------------
-       PROFILE INFO
+       PUBLIC IDENTITY
     --------------------------------------------- */
     username: {
       type: String,
       unique: true,
-      sparse: true,
+      sparse: true,       // IMPORTANT → allows null without conflict
       trim: true,
       lowercase: true,
       index: true,
     },
 
-    name: { type: String, required: true, trim: true },
-
-    email: {
+    name: {
       type: String,
       required: true,
-      unique: true,
       trim: true,
-      lowercase: true,
-      index: true,
     },
 
     photo: {
       type: String,
-      default: "",
-      trim: true,
+      default:
+        "https://cdn-icons-png.flaticon.com/512/149/149071.png",
     },
 
     bio: {
@@ -79,26 +83,27 @@ const userSchema = new mongoose.Schema(
       linkedin: { type: String, default: "", set: normalizeURL },
       instagram: { type: String, default: "", set: normalizeURL },
       website: { type: String, default: "", set: normalizeURL },
+      twitter: { type: String, default: "", set: normalizeURL },
+      facebook: { type: String, default: "", set: normalizeURL },
     },
 
     /* ---------------------------------------------
-       LOCATION
+       LOCATION INFO
     --------------------------------------------- */
     location: {
-      country: { type: String, default: "", trim: true },
-      state: { type: String, default: "", trim: true },
-      district: { type: String, default: "", trim: true },
-      city: { type: String, default: "", trim: true },
+      country: { type: String, default: "" },
+      state: { type: String, default: "" },
+      district: { type: String, default: "" },
+      city: { type: String, default: "" },
     },
 
     /* ---------------------------------------------
-       PREFERENCES
+       USER PREFERENCES
     --------------------------------------------- */
     preferences: {
       darkMode: { type: Boolean, default: false },
       showEmail: { type: Boolean, default: false },
       showProjects: { type: Boolean, default: true },
-
       notifications: {
         email: { type: Boolean, default: true },
         inApp: { type: Boolean, default: true },
@@ -113,7 +118,7 @@ const userSchema = new mongoose.Schema(
     },
 
     /* ---------------------------------------------
-       BLOCKED USERS
+       BLOCKING SYSTEM
     --------------------------------------------- */
     blockedUsers: [
       {
@@ -123,7 +128,7 @@ const userSchema = new mongoose.Schema(
     ],
 
     /* ---------------------------------------------
-       FOLLOWERS / FOLLOWING
+       FOLLOWING SYSTEM
     --------------------------------------------- */
     followers: [
       {
@@ -143,7 +148,7 @@ const userSchema = new mongoose.Schema(
 );
 
 /* -------------------------------------------------------
-   METHODS — FOLLOW / UNFOLLOW
+   METHODS — Follow / Unfollow
 -------------------------------------------------------- */
 userSchema.methods.follow = function (userId) {
   if (!this.following.includes(userId)) {

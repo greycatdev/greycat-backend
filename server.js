@@ -13,7 +13,7 @@ import { Server as IOServer } from "socket.io";
 import { fileURLToPath } from "url";
 import { connectDB } from "./config/db.js";
 
-// Load OAuth strategies
+// OAuth strategies
 import "./auth/google.js";
 import "./auth/github.js";
 
@@ -40,11 +40,10 @@ const MONGO_URI = process.env.MONGO_URI;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// TRUST PROXY for Vercel/Render HTTPS
 app.set("trust proxy", 1);
 
 /* ---------------------------------------------------------
-   SESSION CONFIG (MOST IMPORTANT)
+   SESSION CONFIG
 --------------------------------------------------------- */
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -57,13 +56,13 @@ app.use(
     store: MongoStore.create({
       mongoUrl: MONGO_URI,
       collectionName: "sessions",
-      ttl: 60 * 60 * 24 * 7, // 7 days
+      ttl: 60 * 60 * 24 * 7,
     }),
     cookie: {
       httpOnly: true,
-      secure: isProduction,          // ✔ Only true on https
-      sameSite: isProduction ? "none" : "lax", // ✔ Required for frontend auth
-      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
+      maxAge: 1000 * 60 * 60 * 24 * 7,
     },
   })
 );
@@ -74,9 +73,8 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
-
 /* ---------------------------------------------------------
-   CORS CONFIG — FINAL, CORRECT VERSION
+   CORS CONFIG
 --------------------------------------------------------- */
 const allowedOrigins = [
   CLIENT_URL,
@@ -88,18 +86,19 @@ app.use(
   cors({
     origin: function (origin, cb) {
       if (!origin) return cb(null, true);
-
       if (allowedOrigins.includes(origin)) return cb(null, true);
-
       if (/https:\/\/.*\.vercel\.app$/.test(origin)) return cb(null, true);
 
       console.log("❌ CORS blocked:", origin);
       return cb(new Error("Not allowed by CORS"));
     },
-    credentials: true, // ⭐ MUST BE TRUE FOR SESSION COOKIE
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
+app.options("*", cors());
 
 /* ---------------------------------------------------------
    SECURITY + PERFORMANCE
@@ -121,10 +120,14 @@ app.use(
   })
 );
 
-
 /* ---------------------------------------------------------
-   STATIC FILES
+   STATIC FILES (⭐ includes default profile image)
 --------------------------------------------------------- */
+
+// 1️⃣ Public folder → default-profile image
+app.use(express.static(path.join(__dirname, "public")));
+
+// 2️⃣ Uploaded images
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* ---------------------------------------------------------
@@ -159,30 +162,16 @@ const io = new IOServer(httpServer, {
     origin: allowedOrigins,
     credentials: true,
   },
-  pingTimeout: 60000,
-  pingInterval: 25000,
 });
 
 app.set("io", io);
 
 io.on("connection", (socket) => {
   console.log("Socket connected:", socket.id);
-
-  socket.on("joinRoom", (channelId) => {
-    socket.join(channelId);
-  });
-
-  socket.on("leaveRoom", (channelId) => {
-    socket.leave(channelId);
-  });
-
-  socket.on("disconnect", () => {
-    console.log("Socket disconnected:", socket.id);
-  });
 });
 
 /* ---------------------------------------------------------
-   GLOBAL ERROR HANDLER
+   ERROR HANDLER
 --------------------------------------------------------- */
 app.use((err, req, res, next) => {
   console.error("Server Error:", err);

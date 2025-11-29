@@ -5,10 +5,17 @@ import { uploadProfile } from "../utils/upload.js";
 const router = express.Router();
 
 /* -----------------------------------------------------
-   AUTH MIDDLEWARE (OAuth + Session Safe)
+   CONSTANTS: DEFAULT PROFILE PHOTO
+----------------------------------------------------- */
+const DEFAULT_PHOTO =
+  "https://raw.githubusercontent.com/shahal-kp/greycat-assets/main/default-profile.jpg";
+// Put your fox.jpg link here
+
+/* -----------------------------------------------------
+   AUTH MIDDLEWARE (OAuth + Session Login)
 ----------------------------------------------------- */
 function ensureAuth(req, res, next) {
-  const oauthUser = req.user?.id || req.user?._id;
+  const oauthUser = req.user?._id;
   const sessionUser = req.session.user?._id;
 
   if (!oauthUser && !sessionUser) {
@@ -30,7 +37,6 @@ router.get("/check-username/:username", async (req, res) => {
     const username = req.params.username.toLowerCase().trim();
     const exists = await User.findOne({ username }).lean();
     return res.json({ exists: !!exists });
-
   } catch (err) {
     console.error("CHECK USERNAME ERROR:", err);
     return res.status(500).json({ error: "Server error" });
@@ -38,7 +44,7 @@ router.get("/check-username/:username", async (req, res) => {
 });
 
 /* -----------------------------------------------------
-   SET USERNAME — ONE TIME ONLY
+   SET USERNAME (Only Once)
 ------------------------------------------------------ */
 router.post("/set-username", async (req, res) => {
   try {
@@ -47,7 +53,7 @@ router.post("/set-username", async (req, res) => {
     if (!userId || !username)
       return res.json({ success: false, message: "Missing fields" });
 
-    const final = username.trim().toLowerCase();
+    const final = username.toLowerCase().trim();
 
     if (!final.match(/^[a-z0-9._]+$/)) {
       return res.json({
@@ -57,15 +63,13 @@ router.post("/set-username", async (req, res) => {
     }
 
     const user = await User.findById(userId).lean();
-
     if (!user)
       return res.json({ success: false, message: "User not found" });
 
-    // ❗ DO NOT ALLOW CHANGING USERNAME IF ALREADY SET
     if (user.username) {
       return res.json({
         success: false,
-        message: "Username already set — cannot change",
+        message: "Username already set",
       });
     }
 
@@ -79,14 +83,12 @@ router.post("/set-username", async (req, res) => {
 
     await User.findByIdAndUpdate(userId, { username: final });
 
-    // Update session
     if (req.session.user) {
       req.session.user.username = final;
       await req.session.save();
     }
 
     return res.json({ success: true });
-
   } catch (err) {
     console.error("SET USERNAME ERROR:", err);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -94,14 +96,16 @@ router.post("/set-username", async (req, res) => {
 });
 
 /* -----------------------------------------------------
-   PUBLIC PROFILE (Email hidden!)
+   PUBLIC PROFILE
 ------------------------------------------------------ */
 router.get("/by-username/:username", async (req, res) => {
   try {
     const username = req.params.username.toLowerCase().trim();
 
-    const user = await User.findOne({ username })
-      .select("username name photo bio skills social location preferences privacy createdAt")
+    let user = await User.findOne({ username })
+      .select(
+        "username name photo bio skills social location preferences privacy createdAt updatedAt"
+      )
       .lean();
 
     if (!user) {
@@ -111,8 +115,10 @@ router.get("/by-username/:username", async (req, res) => {
       });
     }
 
-    return res.json({ success: true, user });
+    // ▪ Ensures profile picture always exists
+    if (!user.photo) user.photo = DEFAULT_PHOTO;
 
+    return res.json({ success: true, user });
   } catch (err) {
     console.error("PUBLIC PROFILE ERROR:", err);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -120,12 +126,11 @@ router.get("/by-username/:username", async (req, res) => {
 });
 
 /* -----------------------------------------------------
-   UPDATE PROFILE (Merge instead of overwrite)
+   UPDATE PROFILE (Smart Merge)
 ------------------------------------------------------ */
 router.put("/update", ensureAuth, async (req, res) => {
   try {
     const { bio, skills, social, location } = req.body;
-
     const updates = {};
 
     if (bio !== undefined) updates.bio = bio.trim();
@@ -133,23 +138,36 @@ router.put("/update", ensureAuth, async (req, res) => {
     if (skills !== undefined) {
       updates.skills = Array.isArray(skills)
         ? skills.map((s) => s.trim().toLowerCase())
-        : skills.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+        : skills
+            .split(",")
+            .map((s) => s.trim().toLowerCase())
+            .filter(Boolean);
     }
 
-    // Merge social links
-    if (social) updates.social = { ...social };
+    const user = await User.findById(req.authUserId).lean();
 
-    // Merge location
-    if (location) updates.location = { ...location };
+    // merge socials
+    if (social) {
+      updates.social = { ...(user.social || {}), ...social };
+    }
+
+    // merge location
+    if (location) {
+      updates.location = { ...(user.location || {}), ...location };
+    }
 
     updates.updatedAt = Date.now();
 
-    const updated = await User.findByIdAndUpdate(req.authUserId, updates, {
-      new: true,
-    }).select("username name photo bio skills social location updatedAt");
+    const updatedUser = await User.findByIdAndUpdate(
+      req.authUserId,
+      updates,
+      { new: true }
+    ).select("username name photo bio skills social location updatedAt");
 
-    return res.json({ success: true, user: updated });
+    // fallback photo
+    updatedUser.photo = updatedUser.photo || DEFAULT_PHOTO;
 
+    return res.json({ success: true, user: updatedUser });
   } catch (err) {
     console.error("USER UPDATE ERROR:", err);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -170,11 +188,10 @@ router.post(
       }
 
       const imageURL =
-        req.file.path || req.file.secure_url || req.file.url;
-
-      if (!imageURL) {
-        return res.json({ success: false, message: "Upload failed" });
-      }
+        req.file.secure_url ||
+        req.file.path ||
+        req.file.url ||
+        DEFAULT_PHOTO;
 
       const updatedUser = await User.findByIdAndUpdate(
         req.authUserId,
@@ -182,8 +199,11 @@ router.post(
         { new: true }
       ).select("photo updatedAt");
 
-      return res.json({ success: true, photo: updatedUser.photo });
-
+      return res.json({
+        success: true,
+        photo: updatedUser.photo,
+        updatedAt: updatedUser.updatedAt,
+      });
     } catch (err) {
       console.error("UPLOAD PHOTO ERROR:", err);
       return res.status(500).json({
@@ -199,9 +219,7 @@ router.post(
 ------------------------------------------------------ */
 router.delete("/delete-account", ensureAuth, async (req, res) => {
   try {
-    const userId = req.authUserId;
-
-    await User.findByIdAndDelete(userId);
+    await User.findByIdAndDelete(req.authUserId);
 
     req.logout(() => {
       req.session.destroy(() => {
@@ -217,7 +235,6 @@ router.delete("/delete-account", ensureAuth, async (req, res) => {
         });
       });
     });
-
   } catch (err) {
     console.error("DELETE ACCOUNT ERROR:", err);
     return res.status(500).json({
