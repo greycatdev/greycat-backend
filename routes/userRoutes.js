@@ -5,15 +5,22 @@ import { uploadProfile } from "../utils/upload.js";
 const router = express.Router();
 
 /* -----------------------------------------------------
-   AUTH MIDDLEWARE
+   AUTH MIDDLEWARE (Supports OAuth & Email Sessions)
 ----------------------------------------------------- */
 function ensureAuth(req, res, next) {
-  if (!req.user?._id) {
+  const oauthUser = req.user?._id;
+  const sessionUser = req.session.user?.id || req.session.user?._id;
+
+  if (!oauthUser && !sessionUser) {
     return res.status(401).json({
       success: false,
       message: "Not authenticated",
     });
   }
+
+  // Normalize to a single ID property
+  req.authUserId = oauthUser || sessionUser;
+
   next();
 }
 
@@ -39,15 +46,15 @@ router.post("/set-username", async (req, res) => {
   try {
     const { userId, username } = req.body;
 
-    if (!username)
-      return res.json({ success: false, message: "Username required" });
+    if (!userId || !username)
+      return res.json({ success: false, message: "Missing fields" });
 
     const final = username.trim().toLowerCase();
 
     if (!final.match(/^[a-z0-9._]+$/)) {
       return res.json({
         success: false,
-        message: "Invalid username format",
+        message: "Only letters, numbers, . and _ allowed",
       });
     }
 
@@ -61,7 +68,14 @@ router.post("/set-username", async (req, res) => {
 
     await User.findByIdAndUpdate(userId, { username: final });
 
+    /* ⭐ UPDATE SESSION (very important!) */
+    if (req.session.user) {
+      req.session.user.username = final;
+      req.session.save();
+    }
+
     return res.json({ success: true });
+
   } catch (err) {
     console.error("SET USERNAME ERROR:", err);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -75,8 +89,7 @@ router.get("/by-username/:username", async (req, res) => {
   try {
     const username = req.params.username.toLowerCase().trim();
 
-    const user = await User.findOne({ username }).select(
-      `
+    const user = await User.findOne({ username }).select(`
       username
       name
       email
@@ -88,8 +101,7 @@ router.get("/by-username/:username", async (req, res) => {
       preferences
       privacy
       createdAt
-      `
-    );
+    `);
 
     if (!user) {
       return res
@@ -98,6 +110,7 @@ router.get("/by-username/:username", async (req, res) => {
     }
 
     return res.json({ success: true, user });
+
   } catch (err) {
     console.error("PUBLIC PROFILE ERROR:", err);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -105,7 +118,7 @@ router.get("/by-username/:username", async (req, res) => {
 });
 
 /* -----------------------------------------------------
-   UPDATE LOGGED-IN USER (bio, skills, social, location)
+   UPDATE LOGGED-IN USER PROFILE
 ------------------------------------------------------ */
 router.put("/update", ensureAuth, async (req, res) => {
   try {
@@ -127,14 +140,14 @@ router.put("/update", ensureAuth, async (req, res) => {
     if (social) updates.social = social;
     if (location) updates.location = location;
 
-    updates.updatedAt = Date.now(); // <— ⭐ VERY IMPORTANT
+    updates.updatedAt = Date.now();
 
-const updated = await User.findByIdAndUpdate(req.user._id, updates, {
-  new: true,
-}).select("username name photo bio skills social location updatedAt");
-
+    const updated = await User.findByIdAndUpdate(req.authUserId, updates, {
+      new: true,
+    }).select("username name photo bio skills social location updatedAt");
 
     return res.json({ success: true, user: updated });
+
   } catch (err) {
     console.error("USER UPDATE ERROR:", err);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -142,7 +155,7 @@ const updated = await User.findByIdAndUpdate(req.user._id, updates, {
 });
 
 /* -----------------------------------------------------
-   UPLOAD PROFILE PICTURE (Cloudinary OR Local)
+   UPLOAD PROFILE PHOTO
 ------------------------------------------------------ */
 router.post(
   "/upload-photo",
@@ -169,17 +182,17 @@ router.post(
         });
       }
 
-     const updatedUser = await User.findByIdAndUpdate(
-  req.user._id,
-  { photo: imageURL, updatedAt: Date.now() }, // ⭐ add updatedAt
-  { new: true }
-).select("photo updatedAt");
-
+      const updatedUser = await User.findByIdAndUpdate(
+        req.authUserId,
+        { photo: imageURL, updatedAt: Date.now() },
+        { new: true }
+      ).select("photo updatedAt");
 
       return res.json({
         success: true,
         photo: updatedUser.photo,
       });
+
     } catch (err) {
       console.error("UPLOAD PHOTO ERROR:", err);
       return res
@@ -190,16 +203,14 @@ router.post(
 );
 
 /* -----------------------------------------------------
-   DELETE ACCOUNT (Fully Safe)
+   DELETE ACCOUNT
 ------------------------------------------------------ */
 router.delete("/delete-account", ensureAuth, async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.authUserId;
 
-    // 1. Delete user
     await User.findByIdAndDelete(userId);
 
-    // 2. Destroy session
     req.logout(() => {
       req.session.destroy(() => {
         res.clearCookie("connect.sid", {
@@ -215,6 +226,7 @@ router.delete("/delete-account", ensureAuth, async (req, res) => {
         });
       });
     });
+
   } catch (err) {
     console.error("DELETE ACCOUNT ERROR:", err);
     return res.status(500).json({
@@ -223,6 +235,5 @@ router.delete("/delete-account", ensureAuth, async (req, res) => {
     });
   }
 });
-
 
 export default router;

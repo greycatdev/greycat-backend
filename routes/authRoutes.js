@@ -22,8 +22,8 @@ const HOME_URL = `${CLIENT_URL}/`;
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
-    user: process.env.EMAIL_USER,   // Gmail address
-    pass: process.env.EMAIL_PASS,   // App Password
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
   },
 });
 
@@ -47,6 +47,7 @@ router.post("/signup", async (req, res) => {
       name,
       email,
       password: hashed,
+      username: null, // ⭐ forced NULL for username flow
     });
 
     return res.json({ success: true, message: "Account created" });
@@ -67,8 +68,8 @@ router.post("/login", async (req, res) => {
     if (!email || !password)
       return res.json({ success: false, message: "Email and password required" });
 
-    // IMPORTANT FIX → Include password field
     const user = await User.findOne({ email }).select("+password");
+
     if (!user)
       return res.json({ success: false, message: "User not found" });
 
@@ -76,11 +77,12 @@ router.post("/login", async (req, res) => {
     if (!valid)
       return res.json({ success: false, message: "Incorrect password" });
 
-    // Save session
+    // ⭐ FIX: Include username
     req.session.user = {
-      id: user._id,
-      email: user.email,
+      _id: user._id,
       name: user.name,
+      email: user.email,
+      username: user.username || null,
     };
 
     return res.json({
@@ -96,7 +98,7 @@ router.post("/login", async (req, res) => {
 });
 
 /* -------------------------------------------------------
-   3️⃣ FORGOT PASSWORD — Send Reset Link
+   3️⃣ FORGOT PASSWORD
 -------------------------------------------------------- */
 router.post("/forgot-password", async (req, res) => {
   try {
@@ -109,11 +111,10 @@ router.post("/forgot-password", async (req, res) => {
     if (!user)
       return res.json({ success: false, message: "Email not found" });
 
-    // Create token
     const token = crypto.randomBytes(32).toString("hex");
 
     user.resetToken = token;
-    user.resetTokenExpiry = Date.now() + 10 * 60 * 1000; // 10 min
+    user.resetTokenExpiry = Date.now() + 10 * 60 * 1000;
     await user.save();
 
     const resetLink = `${CLIENT_URL}/reset-password/${token}`;
@@ -124,13 +125,10 @@ router.post("/forgot-password", async (req, res) => {
       subject: "Reset Your GreyCat Password",
       html: `
         <h2>Password Reset Request</h2>
-        <p>Click below to reset your password:</p>
-
-        <a href="${resetLink}" 
+        <a href="${resetLink}"
            style="padding:10px 18px;background:#2f81f7;color:white;text-decoration:none;border-radius:6px;">
            Reset Password
         </a>
-
         <p>This link expires in <strong>10 minutes</strong>.</p>
       `,
     });
@@ -144,7 +142,7 @@ router.post("/forgot-password", async (req, res) => {
 });
 
 /* -------------------------------------------------------
-   4️⃣ RESET PASSWORD — Validate Token & Save New Pass
+   4️⃣ RESET PASSWORD
 -------------------------------------------------------- */
 router.post("/reset-password/:token", async (req, res) => {
   try {
@@ -162,7 +160,6 @@ router.post("/reset-password/:token", async (req, res) => {
     if (!user)
       return res.json({ success: false, message: "Invalid or expired token" });
 
-    // Update password
     user.password = await bcrypt.hash(password, 10);
     user.resetToken = undefined;
     user.resetTokenExpiry = undefined;
@@ -180,15 +177,12 @@ router.post("/reset-password/:token", async (req, res) => {
 /* -------------------------------------------------------
    5️⃣ GOOGLE AUTH
 -------------------------------------------------------- */
-router.get(
-  "/google",
-  passport.authenticate("google", { scope: ["profile", "email"] })
-);
+router.get("/google", passport.authenticate("google", { scope: ["profile", "email"] }));
 
 router.get(
   "/google/callback",
   passport.authenticate("google", { failureRedirect: LOGIN_URL }),
-  (req, res, next) => {
+  (req, res) => {
     req.session.save(() => {
       if (!req.user.username) return res.redirect(SET_USERNAME_URL);
       return res.redirect(HOME_URL);
@@ -199,15 +193,12 @@ router.get(
 /* -------------------------------------------------------
    6️⃣ GITHUB AUTH
 -------------------------------------------------------- */
-router.get(
-  "/github",
-  passport.authenticate("github", { scope: ["user:email"] })
-);
+router.get("/github", passport.authenticate("github", { scope: ["user:email"] }));
 
 router.get(
   "/github/callback",
   passport.authenticate("github", { failureRedirect: LOGIN_URL }),
-  (req, res, next) => {
+  (req, res) => {
     req.session.save(() => {
       if (!req.user.username) return res.redirect(SET_USERNAME_URL);
       return res.redirect(HOME_URL);
@@ -216,24 +207,40 @@ router.get(
 );
 
 /* -------------------------------------------------------
-   7️⃣ CHECK USER AUTH — (Email/Pass + OAuth)
+   7️⃣ CHECK AUTH (Frontend uses this)
 -------------------------------------------------------- */
 router.get("/user", (req, res) => {
-  // OAuth user
+  // OAuth user (Google/Github)
   if (req.isAuthenticated() && req.user) {
-    return res.json({ authenticated: true, user: req.user });
+    return res.json({
+      authenticated: true,
+      user: {
+        _id: req.user._id,
+        name: req.user.name,
+        email: req.user.email,
+        username: req.user.username || null,
+      },
+    });
   }
 
-  // Email/password session
+  // Email/password session user
   if (req.session.user) {
-    return res.json({ authenticated: true, user: req.session.user });
+    return res.json({
+      authenticated: true,
+      user: {
+        _id: req.session.user._id,
+        name: req.session.user.name,
+        email: req.session.user.email,
+        username: req.session.user.username || null,  // ⭐ Fix
+      },
+    });
   }
 
   return res.json({ authenticated: false, user: null });
 });
 
 /* -------------------------------------------------------
-   8️⃣ LOGOUT — Clear session + cookie
+   8️⃣ LOGOUT
 -------------------------------------------------------- */
 router.get("/logout", (req, res) => {
   req.logout(() => {
