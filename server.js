@@ -39,18 +39,18 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI;
 
-const CLIENT_URL = process.env.CLIENT_URL;     // https://thegreycat.vercel.app
-const BACKEND_URL = process.env.BACKEND_URL;   // https://greycat-backend.onrender.com
+const CLIENT_URL = process.env.CLIENT_URL;   // https://thegreycat.vercel.app
+const BACKEND_URL = process.env.BACKEND_URL; // https://greycat-backend.onrender.com
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-app.set("trust proxy", 1); // ⭐ REQUIRED for Render cookies
+// ⭐ Required so secure cookies work behind Render's proxy
+app.set("trust proxy", 1);
 
 /* ---------------------------------------------------------
-   SESSION CONFIG  (⭐ FINAL WORKING VERSION)
+   SESSION CONFIG  (cross-domain cookie: Vercel ↔ Render)
 --------------------------------------------------------- */
-
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "greycat_secret",
@@ -60,12 +60,12 @@ app.use(
     store: MongoStore.create({
       mongoUrl: MONGO_URI,
       collectionName: "sessions",
-      ttl: 60 * 60 * 24 * 7,
+      ttl: 60 * 60 * 24 * 7, // 7 days
     }),
     cookie: {
       httpOnly: true,
-      secure: true,        // ⭐ MUST BE TRUE ON RENDER
-      sameSite: "none",    // ⭐ REQUIRED FOR VERCEL → RENDER cross-domain cookies
+      secure: true,      // Render = HTTPS → must be true
+      sameSite: "none",  // needed for cross-site cookie with Vercel
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
   })
@@ -78,13 +78,13 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 /* ---------------------------------------------------------
-   STATIC FILES (⭐ MUST BE BEFORE CORS)
+   STATIC FILES  (public assets + uploads)
 --------------------------------------------------------- */
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* ---------------------------------------------------------
-   CORS — FINAL, VERIFIED FOR RENDER + VERCEL
+   CORS
 --------------------------------------------------------- */
 const allowedOrigins = [
   CLIENT_URL,
@@ -97,10 +97,7 @@ app.use(
   cors({
     origin: (origin, cb) => {
       if (!origin) return cb(null, true);
-
       if (allowedOrigins.includes(origin)) return cb(null, true);
-
-      // allow all vercel frontend domains
       if (/https:\/\/.*\.vercel\.app$/.test(origin)) return cb(null, true);
 
       console.log("🚫 BLOCKED BY CORS:", origin);
@@ -110,14 +107,15 @@ app.use(
   })
 );
 
-/* ---------------------------------------------------------
-   OPTIONS PREFLIGHT FIX
---------------------------------------------------------- */
+// Preflight
 app.options("*", (req, res) => {
   res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.header("Access-Control-Allow-Credentials", "true");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+  );
   res.sendStatus(200);
 });
 
@@ -185,7 +183,7 @@ io.on("connection", (socket) => {
    ERROR HANDLER
 --------------------------------------------------------- */
 app.use((err, req, res, next) => {
-  console.error("❌ SERVER ERROR:", err.message);
+  console.error("❌ SERVER ERROR:", err);
   res.status(500).json({ success: false, message: "Server error" });
 });
 
@@ -195,5 +193,5 @@ app.use((err, req, res, next) => {
 connectDB();
 
 httpServer.listen(PORT, () =>
-  console.log(`🚀 GreyCat backend running at ${BACKEND_URL}`)
+  console.log(`🚀 GreyCat backend running at ${BACKEND_URL} on port ${PORT}`)
 );
