@@ -45,11 +45,11 @@ const BACKEND_URL = process.env.BACKEND_URL; // https://greycat-backend.onrender
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ⭐ Required so secure cookies work behind Render's proxy
+// ⭐ Required for Secure cookies behind Render proxy
 app.set("trust proxy", 1);
 
 /* ---------------------------------------------------------
-   SESSION CONFIG  (cross-domain cookie: Vercel ↔ Render)
+   SESSION CONFIG  (Fix Cross-Domain Cookies)
 --------------------------------------------------------- */
 app.use(
   session({
@@ -64,27 +64,27 @@ app.use(
     }),
     cookie: {
       httpOnly: true,
-      secure: true,      // Render = HTTPS → must be true
-      sameSite: "none",  // needed for cross-site cookie with Vercel
+      secure: true,       // REQUIRED on Render HTTPS
+      sameSite: "none",   // REQUIRED for Vercel frontend
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
   })
 );
 
 /* ---------------------------------------------------------
-   PASSPORT
+   PASSPORT (OAuth Authentication)
 --------------------------------------------------------- */
 app.use(passport.initialize());
 app.use(passport.session());
 
 /* ---------------------------------------------------------
-   STATIC FILES  (public assets + uploads)
+   STATIC PUBLIC + UPLOADS
 --------------------------------------------------------- */
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* ---------------------------------------------------------
-   CORS
+   CORS (Final Working Version)
 --------------------------------------------------------- */
 const allowedOrigins = [
   CLIENT_URL,

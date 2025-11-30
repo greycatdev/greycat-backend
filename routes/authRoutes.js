@@ -19,12 +19,10 @@ const HOME_URL = `${CLIENT_URL}/`;
 /* -------------------------------------------------------
    DEFAULT PHOTO
 -------------------------------------------------------- */
-// Your image is in backend/public/default-image.jpg
-// Express static automatically exposes it at /default-image.jpg
 const DEFAULT_PHOTO = "/default-image.jpg";
 
 /* -------------------------------------------------------
-   SMTP EMAIL (OPTIONAL)
+   EMAIL SENDER
 -------------------------------------------------------- */
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
@@ -36,24 +34,17 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-transporter.verify((err) => {
-  if (err) console.error("❌ Email Server Error", err);
-  else console.log("📧 Email Server Ready");
-});
-
 /* -------------------------------------------------------
-   1️⃣ SIGNUP (Email + Password)
+   1️⃣ SIGNUP
 -------------------------------------------------------- */
 router.post("/signup", async (req, res) => {
   try {
     const { name, email, password } = req.body;
-
     if (!name || !email || !password)
       return res.json({ success: false, message: "All fields are required" });
 
     const cleanEmail = email.trim().toLowerCase();
     const exists = await User.findOne({ email: cleanEmail });
-
     if (exists)
       return res.json({ success: false, message: "Email already registered" });
 
@@ -64,7 +55,7 @@ router.post("/signup", async (req, res) => {
       email: cleanEmail,
       password: hashed,
       username: null,
-      photo: DEFAULT_PHOTO, // <= FIXED
+      photo: DEFAULT_PHOTO,
     });
 
     return res.json({ success: true, message: "Account created successfully" });
@@ -76,18 +67,17 @@ router.post("/signup", async (req, res) => {
 
 /* -------------------------------------------------------
    2️⃣ LOGIN (Email + Password)
+   🔥 FIX: We attach req.user = user manually
 -------------------------------------------------------- */
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-
     if (!email || !password)
       return res.json({ success: false, message: "Email & password required" });
 
     const user = await User.findOne({ email }).select("+password");
 
     if (!user) return res.json({ success: false, message: "User not found" });
-
     if (!user.password)
       return res.json({
         success: false,
@@ -100,6 +90,7 @@ router.post("/login", async (req, res) => {
 
     const finalPhoto = user.photo || DEFAULT_PHOTO;
 
+    // Create session
     req.session.user = {
       _id: user._id,
       name: user.name,
@@ -107,6 +98,15 @@ router.post("/login", async (req, res) => {
       username: user.username || null,
       photo: finalPhoto,
       updatedAt: user.updatedAt,
+    };
+
+    // ⭐ CRITICAL FIX — make backend routes work
+    req.user = {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      username: user.username,
+      photo: finalPhoto,
     };
 
     return res.json({
@@ -126,7 +126,6 @@ router.post("/login", async (req, res) => {
 router.post("/forgot-password", async (req, res) => {
   try {
     const { email } = req.body;
-
     if (!email) return res.json({ success: false, message: "Email required" });
 
     const user = await User.findOne({ email });
@@ -264,7 +263,7 @@ router.get(
 );
 
 /* -------------------------------------------------------
-   7️⃣ AUTH CHECK (Frontend)
+   7️⃣ AUTH CHECK
 -------------------------------------------------------- */
 router.get("/user", (req, res) => {
   if (req.session.user)

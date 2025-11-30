@@ -2,21 +2,12 @@ import express from "express";
 import Post from "../models/Post.js";
 import User from "../models/User.js";
 import { uploadPost } from "../utils/upload.js";
+import { ensureAuth } from "../middlewares/ensureAuth.js";
 
 const router = express.Router();
 
 /* ----------------------------------------------------
-   AUTH CHECK
----------------------------------------------------- */
-function ensureAuth(req, res, next) {
-  if (!req.user?._id) {
-    return res.status(401).json({ success: false, message: "Not authenticated" });
-  }
-  next();
-}
-
-/* ----------------------------------------------------
-   FORMAT COMMENTS (FAST)
+   FORMAT COMMENTS
 ---------------------------------------------------- */
 async function populateComments(comments) {
   const userIds = comments.map((c) => c.user);
@@ -35,13 +26,16 @@ async function populateComments(comments) {
 /* ----------------------------------------------------
    FORMAT POST
 ---------------------------------------------------- */
-async function formatPost(post, currentUser) {
+async function formatPost(post, authUser) {
   const p = post.toObject();
 
   p.comments = await populateComments(p.comments);
   p.likesCount = p.likes.length;
-  p.likedByCurrentUser = currentUser
-    ? p.likes.some((id) => id.toString() === currentUser._id.toString())
+
+  const currentId = authUser?._id?.toString();
+
+  p.likedByCurrentUser = currentId
+    ? p.likes.some((id) => id.toString() === currentId)
     : false;
 
   return p;
@@ -53,11 +47,11 @@ async function formatPost(post, currentUser) {
 router.post("/create", ensureAuth, uploadPost.single("image"), async (req, res) => {
   try {
     if (!req.file) {
-      return res.json({ success: false, message: "Image upload required" });
+      return res.json({ success: false, message: "Image required" });
     }
 
     const post = await Post.create({
-      user: req.user._id,
+      user: req.authUserId,
       image: req.file.path.replace(/\\/g, "/"),
       caption: req.body.caption?.trim() || "",
     });
@@ -78,7 +72,9 @@ router.get("/feed", async (req, res) => {
       .sort({ createdAt: -1 })
       .populate("user", "username name photo");
 
-    const formatted = await Promise.all(posts.map((p) => formatPost(p, req.user)));
+    const authUser = req.session?.user || req.user || null;
+
+    const formatted = await Promise.all(posts.map((p) => formatPost(p, authUser)));
 
     return res.json({ success: true, posts: formatted });
   } catch (err) {
@@ -88,22 +84,24 @@ router.get("/feed", async (req, res) => {
 });
 
 /* ----------------------------------------------------
-   USER POSTS (PROFILE PAGE)
+   USER POSTS
 ---------------------------------------------------- */
 router.get("/user/:username", async (req, res) => {
   try {
     const username = req.params.username.toLowerCase();
-    const user = await User.findOne({ username });
+    const profileUser = await User.findOne({ username });
 
-    if (!user) {
+    if (!profileUser) {
       return res.json({ success: false, message: "User not found" });
     }
 
-    const posts = await Post.find({ user: user._id })
+    const posts = await Post.find({ user: profileUser._id })
       .sort({ createdAt: -1 })
       .populate("user", "username photo");
 
-    const formatted = await Promise.all(posts.map((p) => formatPost(p, req.user)));
+    const authUser = req.session?.user || req.user || null;
+
+    const formatted = await Promise.all(posts.map((p) => formatPost(p, authUser)));
 
     return res.json({ success: true, posts: formatted });
   } catch (err) {
@@ -124,7 +122,9 @@ router.get("/:id", async (req, res) => {
 
     if (!post) return res.json({ success: false, message: "Post not found" });
 
-    const formatted = await formatPost(post, req.user);
+    const authUser = req.session?.user || req.user;
+
+    const formatted = await formatPost(post, authUser);
 
     return res.json({ success: true, post: formatted });
   } catch (err) {
@@ -134,28 +134,7 @@ router.get("/:id", async (req, res) => {
 });
 
 /* ----------------------------------------------------
-   EXPLORE RANDOM POSTS
----------------------------------------------------- */
-router.get("/explore/random", async (req, res) => {
-  try {
-    const posts = await Post.aggregate([{ $sample: { size: 40 } }]);
-
-    const withUsers = await Promise.all(
-      posts.map(async (p) => ({
-        ...p,
-        user: await User.findById(p.user).select("username photo").lean(),
-      }))
-    );
-
-    return res.json({ success: true, posts: withUsers });
-  } catch (err) {
-    console.error("EXPLORE ERROR:", err);
-    return res.status(500).json({ success: false });
-  }
-});
-
-/* ----------------------------------------------------
-   LIKE / UNLIKE POST
+   LIKE / UNLIKE
 ---------------------------------------------------- */
 router.post("/:id/like", ensureAuth, async (req, res) => {
   try {
@@ -163,13 +142,13 @@ router.post("/:id/like", ensureAuth, async (req, res) => {
 
     if (!post) return res.json({ success: false, message: "Post not found" });
 
-    const userId = req.user._id.toString();
+    const userId = req.authUserId.toString();
     const alreadyLiked = post.likes.some((id) => id.toString() === userId);
 
     if (alreadyLiked) {
       post.likes = post.likes.filter((id) => id.toString() !== userId);
     } else {
-      post.likes.push(req.user._id);
+      post.likes.push(req.authUserId);
     }
 
     await post.save();
@@ -186,7 +165,7 @@ router.post("/:id/like", ensureAuth, async (req, res) => {
 });
 
 /* ----------------------------------------------------
-   ADD COMMENT
+   COMMENT
 ---------------------------------------------------- */
 router.post("/:id/comment", ensureAuth, async (req, res) => {
   try {
@@ -204,7 +183,7 @@ router.post("/:id/comment", ensureAuth, async (req, res) => {
     if (!post) return res.json({ success: false, message: "Post not found" });
 
     post.comments.push({
-      user: req.user._id,
+      user: req.authUserId,
       text,
       createdAt: new Date(),
     });
@@ -221,7 +200,7 @@ router.post("/:id/comment", ensureAuth, async (req, res) => {
 });
 
 /* ----------------------------------------------------
-   DELETE POST (OWNER ONLY)
+   DELETE POST
 ---------------------------------------------------- */
 router.delete("/:id", ensureAuth, async (req, res) => {
   try {
@@ -229,13 +208,13 @@ router.delete("/:id", ensureAuth, async (req, res) => {
 
     if (!post) return res.json({ success: false, message: "Post not found" });
 
-    if (post.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ success: false, message: "Not authorized" });
+    if (post.user.toString() !== req.authUserId.toString()) {
+      return res.status(403).json({ success: false, message: "Not allowed" });
     }
 
     await post.deleteOne();
 
-    return res.json({ success: true, message: "Post deleted" });
+    return res.json({ success: true });
   } catch (err) {
     console.error("DELETE POST ERROR:", err);
     return res.status(500).json({ success: false });

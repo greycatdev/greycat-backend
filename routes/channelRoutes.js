@@ -1,20 +1,9 @@
 import express from "express";
 import Channel from "../models/Channel.js";
 import Message from "../models/Message.js";
+import { ensureAuth } from "../middlewares/ensureAuth.js";
 
 const router = express.Router();
-
-/* -----------------------------------------------------
-   AUTH MIDDLEWARE
------------------------------------------------------ */
-function ensureAuth(req, res, next) {
-  if (!req.user || !req.user._id) {
-    return res
-      .status(401)
-      .json({ success: false, message: "Not authenticated" });
-  }
-  next();
-}
 
 /* -----------------------------------------------------
    LIST PUBLIC CHANNELS
@@ -43,9 +32,10 @@ router.get("/:id", async (req, res) => {
       .lean();
 
     if (!channel) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Channel not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Channel not found",
+      });
     }
 
     return res.json({ success: true, channel });
@@ -75,14 +65,16 @@ router.post("/create", ensureAuth, async (req, res) => {
       return res.json({ success: false, message: "Channel name taken" });
     }
 
+    const userId = req.authUserId; // ⭐ unified auth
+
     const channel = await Channel.create({
       name: finalName,
       title: title || finalName,
       description: description || "",
       isPrivate: !!isPrivate,
-      createdBy: req.user._id,
-      moderators: [req.user._id],
-      members: [req.user._id],
+      createdBy: userId,
+      moderators: [userId],
+      members: [userId],
     });
 
     return res.json({ success: true, channel });
@@ -97,13 +89,15 @@ router.post("/create", ensureAuth, async (req, res) => {
 ----------------------------------------------------- */
 router.post("/:id/join", ensureAuth, async (req, res) => {
   try {
+    const userId = req.authUserId;
+
     const channel = await Channel.findById(req.params.id);
     if (!channel) {
       return res.json({ success: false, message: "Channel not found" });
     }
 
-    if (!channel.members.includes(req.user._id)) {
-      channel.members.push(req.user._id);
+    if (!channel.members.includes(userId)) {
+      channel.members.push(userId);
       await channel.save({ validateBeforeSave: false });
     }
 
@@ -119,8 +113,10 @@ router.post("/:id/join", ensureAuth, async (req, res) => {
 ----------------------------------------------------- */
 router.post("/:id/leave", ensureAuth, async (req, res) => {
   try {
+    const userId = req.authUserId;
+
     await Channel.findByIdAndUpdate(req.params.id, {
-      $pull: { members: req.user._id },
+      $pull: { members: userId },
     });
 
     return res.json({ success: true });
@@ -135,6 +131,7 @@ router.post("/:id/leave", ensureAuth, async (req, res) => {
 ----------------------------------------------------- */
 router.post("/:id/message", ensureAuth, async (req, res) => {
   try {
+    const userId = req.authUserId;
     const { text, attachments } = req.body;
     const channelId = req.params.id;
 
@@ -143,7 +140,7 @@ router.post("/:id/message", ensureAuth, async (req, res) => {
       return res.json({ success: false, message: "Channel not found" });
     }
 
-    if (channel.isPrivate && !channel.members.includes(req.user._id)) {
+    if (channel.isPrivate && !channel.members.includes(userId)) {
       return res.status(403).json({
         success: false,
         message: "Private channel: join first",
@@ -152,7 +149,7 @@ router.post("/:id/message", ensureAuth, async (req, res) => {
 
     const message = await Message.create({
       channel: channelId,
-      user: req.user._id,
+      user: userId,
       text: text || "",
       attachments: Array.isArray(attachments) ? attachments : [],
     });
@@ -161,7 +158,6 @@ router.post("/:id/message", ensureAuth, async (req, res) => {
       .populate("user", "username name photo")
       .lean();
 
-    // Broadcast via socket
     const io = req.app.get("io");
     if (io) io.to(channelId).emit("new_message", msgPop);
 
@@ -200,10 +196,12 @@ router.get("/:id/messages", async (req, res) => {
 });
 
 /* -----------------------------------------------------
-   DELETE MESSAGE (real delete)
+   DELETE MESSAGE
 ----------------------------------------------------- */
 router.delete("/message/:msgId", ensureAuth, async (req, res) => {
   try {
+    const userId = req.authUserId;
+
     const msg = await Message.findById(req.params.msgId);
     if (!msg) {
       return res.json({ success: false, message: "Message not found" });
@@ -214,20 +212,20 @@ router.delete("/message/:msgId", ensureAuth, async (req, res) => {
       return res.json({ success: false, message: "Channel not found" });
     }
 
-    const isOwner = msg.user?.toString() === req.user._id.toString();
+    const isOwner = msg.user?.toString() === userId.toString();
     const isMod = channel.moderators.some(
-      (m) => m.toString() === req.user._id.toString()
+      (m) => m.toString() === userId.toString()
     );
 
     if (!isOwner && !isMod) {
-      return res
-        .status(403)
-        .json({ success: false, message: "Unauthorized" });
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized",
+      });
     }
 
     await Message.findByIdAndDelete(msg._id);
 
-    // Optional: remove from channel if storing refs
     await Channel.findByIdAndUpdate(channel._id, {
       $pull: { messages: msg._id },
     });
@@ -246,10 +244,11 @@ router.delete("/message/:msgId", ensureAuth, async (req, res) => {
 });
 
 /* -----------------------------------------------------
-   MESSAGE REACTIONS
+   REACTIONS
 ----------------------------------------------------- */
 router.post("/message/:msgId/react", ensureAuth, async (req, res) => {
   try {
+    const userId = req.authUserId;
     const { emoji } = req.body;
 
     if (!emoji) {
@@ -262,21 +261,18 @@ router.post("/message/:msgId/react", ensureAuth, async (req, res) => {
     }
 
     const exists = msg.reactions.find(
-      (r) =>
-        r.emoji === emoji &&
-        r.user.toString() === req.user._id.toString()
+      (r) => r.emoji === emoji && r.user.toString() === userId.toString()
     );
 
     if (exists) {
       msg.reactions = msg.reactions.filter(
         (r) =>
           !(
-            r.emoji === emoji &&
-            r.user.toString() === req.user._id.toString()
+            r.emoji === emoji && r.user.toString() === userId.toString()
           )
       );
     } else {
-      msg.reactions.push({ emoji, user: req.user._id });
+      msg.reactions.push({ emoji, user: userId });
     }
 
     await msg.save();

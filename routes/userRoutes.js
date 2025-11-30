@@ -5,18 +5,18 @@ import { uploadProfile } from "../utils/upload.js";
 const router = express.Router();
 
 /* -----------------------------------------------------
-   CONSTANTS: DEFAULT PROFILE PHOTO
------------------------------------------------------ */
-// Correct → Static file served automatically by Express
+   CONSTANTS
+------------------------------------------------------ */
 const DEFAULT_PHOTO = "/default-image.jpg";
 
 /* -----------------------------------------------------
-   AUTH MIDDLEWARE (OAuth + Session Login)
------------------------------------------------------ */
+   AUTH MIDDLEWARE (Unified Hybrid Authentication)
+------------------------------------------------------ */
 function ensureAuth(req, res, next) {
   const oauthUser = req.user?._id;
   const sessionUser = req.session.user?._id;
 
+  // If neither exists → not authenticated
   if (!oauthUser && !sessionUser) {
     return res.status(401).json({
       success: false,
@@ -24,12 +24,13 @@ function ensureAuth(req, res, next) {
     });
   }
 
+  // unified ID for all protected routes
   req.authUserId = oauthUser || sessionUser;
   next();
 }
 
 /* -----------------------------------------------------
-   CHECK USERNAME EXISTS
+   CHECK USERNAME AVAILABILITY
 ------------------------------------------------------ */
 router.get("/check-username/:username", async (req, res) => {
   try {
@@ -43,7 +44,7 @@ router.get("/check-username/:username", async (req, res) => {
 });
 
 /* -----------------------------------------------------
-   SET USERNAME (Only Once)
+   SET USERNAME (First-time users)
 ------------------------------------------------------ */
 router.post("/set-username", async (req, res) => {
   try {
@@ -61,7 +62,7 @@ router.post("/set-username", async (req, res) => {
       });
     }
 
-    const user = await User.findById(userId).lean();
+    const user = await User.findById(userId);
     if (!user)
       return res.json({ success: false, message: "User not found" });
 
@@ -72,16 +73,17 @@ router.post("/set-username", async (req, res) => {
       });
     }
 
-    const exists = await User.findOne({ username: final }).lean();
-    if (exists) {
+    const exists = await User.findOne({ username: final });
+    if (exists)
       return res.json({
         success: false,
         message: "Username already taken",
       });
-    }
 
-    await User.findByIdAndUpdate(userId, { username: final });
+    user.username = final;
+    await user.save();
 
+    // Update session if session user
     if (req.session.user) {
       req.session.user.username = final;
       await req.session.save();
@@ -95,7 +97,7 @@ router.post("/set-username", async (req, res) => {
 });
 
 /* -----------------------------------------------------
-   PUBLIC PROFILE
+   PUBLIC PROFILE BY USERNAME
 ------------------------------------------------------ */
 router.get("/by-username/:username", async (req, res) => {
   try {
@@ -114,7 +116,6 @@ router.get("/by-username/:username", async (req, res) => {
       });
     }
 
-    // fallback default photo
     if (!user.photo) user.photo = DEFAULT_PHOTO;
 
     return res.json({ success: true, user });
@@ -125,11 +126,12 @@ router.get("/by-username/:username", async (req, res) => {
 });
 
 /* -----------------------------------------------------
-   UPDATE PROFILE (Smart Merge)
+   UPDATE PROFILE
 ------------------------------------------------------ */
 router.put("/update", ensureAuth, async (req, res) => {
   try {
     const { bio, skills, social, location } = req.body;
+
     const updates = {};
 
     if (bio !== undefined) updates.bio = bio.trim();
@@ -161,7 +163,6 @@ router.put("/update", ensureAuth, async (req, res) => {
       { new: true }
     ).select("username name photo bio skills social location updatedAt");
 
-    // fallback default photo
     updatedUser.photo = updatedUser.photo || DEFAULT_PHOTO;
 
     return res.json({ success: true, user: updatedUser });
@@ -184,11 +185,10 @@ router.post(
         return res.json({ success: false, message: "No file uploaded" });
       }
 
-      // Cloudinary / Local / Fallback
       const imageURL =
         req.file.secure_url ||
-        req.file.path ||
         req.file.url ||
+        req.file.path?.replace(/\\/g, "/") ||
         DEFAULT_PHOTO;
 
       const updatedUser = await User.findByIdAndUpdate(

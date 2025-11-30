@@ -3,28 +3,16 @@ import User from "../models/User.js";
 import Post from "../models/Post.js";
 import Project from "../models/Project.js";
 import Event from "../models/Event.js";
+import { ensureAuth } from "../middlewares/ensureAuth.js";
 
 const router = express.Router();
-
-/* ---------------------------------------------------------
-   AUTH MIDDLEWARE
---------------------------------------------------------- */
-function ensureAuth(req, res, next) {
-  if (!req.user?._id) {
-    return res.status(401).json({
-      success: false,
-      message: "Not authenticated",
-    });
-  }
-  next();
-}
 
 /* ---------------------------------------------------------
    GET SETTINGS
 --------------------------------------------------------- */
 router.get("/", ensureAuth, async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select(
+    const user = await User.findById(req.authUserId).select(
       "name username email photo bio skills social location preferences privacy blockedUsers"
     );
 
@@ -36,7 +24,7 @@ router.get("/", ensureAuth, async (req, res) => {
 });
 
 /* ---------------------------------------------------------
-   UPDATE PROFILE  (FULLY FIXED)
+   UPDATE PROFILE
 --------------------------------------------------------- */
 router.post("/profile", ensureAuth, async (req, res) => {
   try {
@@ -48,7 +36,7 @@ router.post("/profile", ensureAuth, async (req, res) => {
     if (social) updates.social = social;
     if (location) updates.location = location;
 
-    /* ---- Skills normalization ---- */
+    // --- Skills normalization
     if (skills !== undefined) {
       updates.skills = Array.isArray(skills)
         ? skills.map((s) => s.toString().trim().toLowerCase())
@@ -58,7 +46,7 @@ router.post("/profile", ensureAuth, async (req, res) => {
             .filter(Boolean);
     }
 
-    /* ---- Username validation ---- */
+    // --- Username validation
     if (username) {
       const final = username.trim().toLowerCase();
 
@@ -71,7 +59,7 @@ router.post("/profile", ensureAuth, async (req, res) => {
 
       const exists = await User.findOne({
         username: final,
-        _id: { $ne: req.user._id },
+        _id: { $ne: req.authUserId },
       });
 
       if (exists) {
@@ -84,14 +72,14 @@ router.post("/profile", ensureAuth, async (req, res) => {
       updates.username = final;
     }
 
-    /* ---- UPDATE USER ---- */
-    const updated = await User.findByIdAndUpdate(req.user._id, updates, {
+    // --- UPDATE USER
+    const updated = await User.findByIdAndUpdate(req.authUserId, updates, {
       new: true,
     });
 
-    /* ---------------------------------------------------
-       IMPORTANT FIX: REFRESH PASSPORT SESSION
-    --------------------------------------------------- */
+    // Refresh session (both passport & session users)
+    req.session.user = updated;
+
     req.login(updated, (err) => {
       if (err) console.log("Session refresh failed:", err);
     });
@@ -111,7 +99,7 @@ router.post("/preferences", ensureAuth, async (req, res) => {
     const { darkMode, showEmail, showProjects, notifications, language } =
       req.body;
 
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(req.authUserId);
     if (!user.preferences) user.preferences = {};
 
     if (darkMode !== undefined) user.preferences.darkMode = !!darkMode;
@@ -139,7 +127,7 @@ router.post("/privacy", ensureAuth, async (req, res) => {
   try {
     const { privateProfile } = req.body;
 
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(req.authUserId);
     user.privacy = { privateProfile: !!privateProfile };
     await user.save();
 
@@ -160,7 +148,7 @@ router.post("/block", ensureAuth, async (req, res) => {
     if (!userId)
       return res.json({ success: false, message: "User ID required" });
 
-    if (userId === req.user._id.toString()) {
+    if (userId === req.authUserId.toString()) {
       return res.json({
         success: false,
         message: "You cannot block yourself",
@@ -172,7 +160,7 @@ router.post("/block", ensureAuth, async (req, res) => {
       return res.json({ success: false, message: "User not found" });
     }
 
-    await User.findByIdAndUpdate(req.user._id, {
+    await User.findByIdAndUpdate(req.authUserId, {
       $addToSet: { blockedUsers: userId },
     });
 
@@ -190,7 +178,7 @@ router.post("/unblock", ensureAuth, async (req, res) => {
   try {
     const { userId } = req.body;
 
-    await User.findByIdAndUpdate(req.user._id, {
+    await User.findByIdAndUpdate(req.authUserId, {
       $pull: { blockedUsers: userId },
     });
 
@@ -206,18 +194,16 @@ router.post("/unblock", ensureAuth, async (req, res) => {
 --------------------------------------------------------- */
 router.delete("/delete", ensureAuth, async (req, res) => {
   try {
-    const uid = req.user._id;
+    const uid = req.authUserId;
 
     await Post.deleteMany({ user: uid });
     await Project.deleteMany({ user: uid });
     await Event.deleteMany({ host: uid });
-
     await User.findByIdAndDelete(uid);
 
-    req.logout((err) => {
-      if (err) console.error("Logout error during delete:", err);
+    req.session.destroy(() => {
       res.clearCookie("connect.sid");
-      res.json({ success: true, message: "Account deleted" });
+      return res.json({ success: true, message: "Account deleted" });
     });
   } catch (err) {
     console.error("ACCOUNT DELETE ERROR:", err);

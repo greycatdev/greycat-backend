@@ -1,19 +1,8 @@
 import express from "express";
 import User from "../models/User.js";
+import { ensureAuth } from "../middlewares/ensureAuth.js";
 
 const router = express.Router();
-
-/* ---------------------------------------------------
-   AUTH CHECK
---------------------------------------------------- */
-function ensureAuth(req, res, next) {
-  if (!req.user || !req.user._id)
-    return res
-      .status(401)
-      .json({ success: false, message: "Not logged in" });
-
-  next();
-}
 
 /* ---------------------------------------------------
    FOLLOW USER
@@ -27,13 +16,13 @@ router.post("/follow/:username", ensureAuth, async (req, res) => {
     if (!target)
       return res.json({ success: false, message: "User not found" });
 
-    if (target._id.equals(req.user._id))
+    if (target._id.equals(req.authUserId))
       return res.json({
         success: false,
         message: "You cannot follow yourself",
       });
 
-    const me = await User.findById(req.user._id);
+    const me = await User.findById(req.authUserId);
 
     if (me.following.includes(target._id))
       return res.json({
@@ -67,7 +56,7 @@ router.post("/unfollow/:username", ensureAuth, async (req, res) => {
     if (!target)
       return res.json({ success: false, message: "User not found" });
 
-    const me = await User.findById(req.user._id);
+    const me = await User.findById(req.authUserId);
 
     me.following = me.following.filter(
       (id) => id.toString() !== target._id.toString()
@@ -87,21 +76,25 @@ router.post("/unfollow/:username", ensureAuth, async (req, res) => {
 });
 
 /* ---------------------------------------------------
-   CHECK FOLLOW STATUS
+   FOLLOW STATUS
 --------------------------------------------------- */
 router.get("/status/:username", async (req, res) => {
   try {
-    if (!req.user)
+    const sessionUser = req.session?.user;
+    const oauthUser = req.user;
+
+    if (!sessionUser && !oauthUser)
       return res.json({ success: true, following: false });
+
+    const authUserId = (sessionUser || oauthUser)._id;
 
     const target = await User.findOne({
       username: req.params.username.toLowerCase(),
     });
 
-    if (!target)
-      return res.json({ success: false });
+    if (!target) return res.json({ success: false });
 
-    const me = await User.findById(req.user._id);
+    const me = await User.findById(authUserId);
 
     const isFollowing = me.following.includes(target._id);
 

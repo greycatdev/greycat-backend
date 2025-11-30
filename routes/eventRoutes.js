@@ -1,20 +1,9 @@
 import express from "express";
 import Event from "../models/Event.js";
 import { uploadPost } from "../utils/upload.js";
+import { ensureAuth } from "../middlewares/ensureAuth.js";
 
 const router = express.Router();
-
-/* ---------------------------------------------------------
-   AUTH MIDDLEWARE
---------------------------------------------------------- */
-function ensureAuth(req, res, next) {
-  if (!req.user || !req.user._id) {
-    return res
-      .status(401)
-      .json({ success: false, message: "Not logged in" });
-  }
-  next();
-}
 
 /* ---------------------------------------------------------
    CREATE EVENT
@@ -27,7 +16,6 @@ router.post(
     try {
       let bannerImage = req.body.bannerImage || "";
 
-      // If file uploaded → convert path to correct URL format
       if (req.file) {
         bannerImage = req.file.path.replace(/\\/g, "/");
       }
@@ -43,15 +31,16 @@ router.post(
         location: req.body.location,
         type: req.body.type || "online",
         bannerImage,
-        host: req.user._id,
+        host: req.authUserId,       // ⭐ FIX
       });
 
       return res.json({ success: true, event });
     } catch (err) {
       console.error("EVENT CREATE ERROR:", err);
-      return res
-        .status(500)
-        .json({ success: false, message: "Server error" });
+      return res.status(500).json({
+        success: false,
+        message: "Server error",
+      });
     }
   }
 );
@@ -68,8 +57,7 @@ router.get("/", async (req, res) => {
 
     const normalized = events.map((ev) => ({
       ...ev,
-      bannerImage:
-        ev.bannerImage || "/icons/default-event-banner.jpeg",
+      bannerImage: ev.bannerImage || "/icons/default-event-banner.jpeg",
     }));
 
     return res.json({ success: true, events: normalized });
@@ -80,7 +68,7 @@ router.get("/", async (req, res) => {
 });
 
 /* ---------------------------------------------------------
-   GET EVENT DETAILS (WITH COMMENTS)
+   GET EVENT DETAILS
 --------------------------------------------------------- */
 router.get("/:id", async (req, res) => {
   try {
@@ -113,12 +101,12 @@ router.post("/:id/join", ensureAuth, async (req, res) => {
     if (!event)
       return res.json({ success: false, message: "Event not found" });
 
-    const userId = req.user._id;
+    const userId = req.authUserId; // ⭐ FIX
 
     if (event.attendees.includes(userId)) {
-      event.attendees.pull(userId); // leave
+      event.attendees.pull(userId);
     } else {
-      event.attendees.push(userId); // join
+      event.attendees.push(userId);
     }
 
     await event.save();
@@ -150,7 +138,7 @@ router.post("/:id/comment", ensureAuth, async (req, res) => {
 
     event.comments.push({
       text,
-      user: req.user._id,
+      user: req.authUserId, // ⭐ FIX
       createdAt: new Date(),
     });
 
@@ -177,10 +165,11 @@ router.delete("/:id", ensureAuth, async (req, res) => {
     if (!event)
       return res.json({ success: false, message: "Event not found" });
 
-    if (event.host.toString() !== req.user._id.toString()) {
-      return res
-        .status(403)
-        .json({ success: false, message: "Not allowed" });
+    if (event.host.toString() !== req.authUserId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "Not allowed",
+      });
     }
 
     await Event.findByIdAndDelete(req.params.id);

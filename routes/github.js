@@ -5,7 +5,14 @@ import Project from "../models/Project.js";
 const router = express.Router();
 
 /* --------------------------------------------------------
-   1️⃣ FETCH PUBLIC GITHUB REPOS (With Token Support)
+   AUTH FIX → Works for new users and old users
+--------------------------------------------------------- */
+function getAuthUser(req) {
+  return req.user || req.session.user || null;
+}
+
+/* --------------------------------------------------------
+   1️⃣ FETCH PUBLIC GITHUB REPOS
 --------------------------------------------------------- */
 router.get("/repos/:username", async (req, res) => {
   try {
@@ -17,13 +24,11 @@ router.get("/repos/:username", async (req, res) => {
 
     const url = `https://api.github.com/users/${username}/repos?per_page=100&sort=pushed`;
 
-    // GitHub Token (optional but recommended)
     const headers = {
       "User-Agent": "GreyCat-App",
       Accept: "application/vnd.github+json",
     };
 
-    // Add token only if it exists
     if (process.env.GITHUB_TOKEN) {
       headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
     }
@@ -35,40 +40,39 @@ router.get("/repos/:username", async (req, res) => {
       name: repo.name,
       description: repo.description || "",
       url: repo.html_url,
-      language: repo.language?.trim() || "unknown",
+      language: repo.language?.trim().toLowerCase() || "unknown",
     }));
 
     return res.json({ success: true, repos });
-
   } catch (err) {
     const status = err.response?.status;
-    console.log("GitHub Fetch Error:", status);
+    console.log("GitHub API Error:", status);
 
-    if (status === 404) {
+    if (status === 404)
       return res.json({ success: false, message: "GitHub user not found" });
-    }
 
-    if (status === 403) {
+    if (status === 403)
       return res.json({
         success: false,
         message:
-          "GitHub API rate limit exceeded. Add a GitHub token to fix this.",
+          "GitHub API rate limit exceeded. Add a GITHUB_TOKEN in backend env.",
       });
-    }
 
     return res.json({
       success: false,
-      message: "Failed to fetch GitHub data",
+      message: "Failed to fetch GitHub repositories",
     });
   }
 });
 
 /* --------------------------------------------------------
-   2️⃣ IMPORT SELECTED PROJECTS (ONLY IF LOGGED-IN)
+   2️⃣ IMPORT REPOS AS PROJECTS
 --------------------------------------------------------- */
 router.post("/import", async (req, res) => {
   try {
-    if (!req.user?._id) {
+    const authUser = getAuthUser(req);
+
+    if (!authUser?._id) {
       return res
         .status(401)
         .json({ success: false, message: "Not authenticated" });
@@ -79,31 +83,31 @@ router.post("/import", async (req, res) => {
     if (!Array.isArray(repos) || repos.length === 0) {
       return res.json({
         success: false,
-        message: "No repositories provided",
+        message: "No repositories selected",
       });
     }
 
     const imported = [];
 
     for (let repo of repos) {
-      const repoURL = repo.url?.trim();
-      if (!repoURL) continue;
+      const url = repo.url?.trim();
+      if (!url) continue;
 
-      // Prevent duplicates
+      // avoid duplicates
       const exists = await Project.findOne({
-        user: req.user._id,
-        link: repoURL,
+        user: authUser._id,
+        link: url,
       }).lean();
 
       if (exists) continue;
 
       const project = await Project.create({
-        user: req.user._id,
+        user: authUser._id,
         title: repo.name,
         description: repo.description || "No description available",
-        tech: [repo.language?.trim().toLowerCase() || "unknown"],
-        link: repoURL,
-        image: "", // No image
+        tech: [repo.language || "unknown"],
+        link: url,
+        image: "",
       });
 
       imported.push(project);
@@ -114,12 +118,11 @@ router.post("/import", async (req, res) => {
       importedCount: imported.length,
       message: "Projects imported successfully",
     });
-
   } catch (err) {
     console.error("GitHub Import Error:", err);
     return res.status(500).json({
       success: false,
-      message: "Failed to import projects",
+      message: "Failed to import GitHub projects",
     });
   }
 });
