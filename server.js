@@ -38,17 +38,18 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI;
-const CLIENT_URL = process.env.CLIENT_URL;
+
+const CLIENT_URL = process.env.CLIENT_URL;     // https://thegreycat.vercel.app
+const BACKEND_URL = process.env.BACKEND_URL;   // https://greycat-backend.onrender.com
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-app.set("trust proxy", 1);
+app.set("trust proxy", 1); // ⭐ REQUIRED for Render cookies
 
 /* ---------------------------------------------------------
-   SESSION CONFIG
+   SESSION CONFIG  (⭐ FINAL WORKING VERSION)
 --------------------------------------------------------- */
-const isProduction = process.env.NODE_ENV === "production";
 
 app.use(
   session({
@@ -63,8 +64,8 @@ app.use(
     }),
     cookie: {
       httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? "none" : "lax",
+      secure: true,        // ⭐ MUST BE TRUE ON RENDER
+      sameSite: "none",    // ⭐ REQUIRED FOR VERCEL → RENDER cross-domain cookies
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
   })
@@ -77,16 +78,17 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 /* ---------------------------------------------------------
-   STATIC FILES  (⭐ Put BEFORE CORS)
+   STATIC FILES (⭐ MUST BE BEFORE CORS)
 --------------------------------------------------------- */
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* ---------------------------------------------------------
-   CORS  (⭐ Safe & clean)
+   CORS — FINAL, VERIFIED FOR RENDER + VERCEL
 --------------------------------------------------------- */
 const allowedOrigins = [
   CLIENT_URL,
+  BACKEND_URL,
   "http://localhost:5173",
   "http://localhost:3000",
 ];
@@ -95,28 +97,28 @@ app.use(
   cors({
     origin: (origin, cb) => {
       if (!origin) return cb(null, true);
+
       if (allowedOrigins.includes(origin)) return cb(null, true);
+
+      // allow all vercel frontend domains
       if (/https:\/\/.*\.vercel\.app$/.test(origin)) return cb(null, true);
 
-      console.log("🚫 CORS blocked:", origin);
-      return cb(new Error("Not allowed by CORS"));
+      console.log("🚫 BLOCKED BY CORS:", origin);
+      return cb(new Error("CORS Not Allowed"));
     },
     credentials: true,
   })
 );
 
 /* ---------------------------------------------------------
-   GLOBAL OPTIONS HANDLER
+   OPTIONS PREFLIGHT FIX
 --------------------------------------------------------- */
-app.use((req, res, next) => {
-  if (req.method === "OPTIONS") {
-    res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
-    res.header("Access-Control-Allow-Credentials", "true");
-    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-    return res.sendStatus(200);
-  }
-  next();
+app.options("*", (req, res) => {
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.sendStatus(200);
 });
 
 /* ---------------------------------------------------------
@@ -130,12 +132,12 @@ app.use(
 );
 
 app.use(compression());
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "20mb" }));
 
 app.use(
   rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 500,
+    max: 1000,
   })
 );
 
@@ -183,7 +185,7 @@ io.on("connection", (socket) => {
    ERROR HANDLER
 --------------------------------------------------------- */
 app.use((err, req, res, next) => {
-  console.error("Server Error:", err);
+  console.error("❌ SERVER ERROR:", err.message);
   res.status(500).json({ success: false, message: "Server error" });
 });
 
@@ -193,5 +195,5 @@ app.use((err, req, res, next) => {
 connectDB();
 
 httpServer.listen(PORT, () =>
-  console.log(`🚀 GreyCat server running on port ${PORT}`)
+  console.log(`🚀 GreyCat backend running at ${BACKEND_URL}`)
 );
