@@ -2,7 +2,7 @@ import express from "express";
 import Post from "../models/Post.js";
 import User from "../models/User.js";
 import { uploadPost } from "../utils/upload.js";
-import { ensureAuth } from "../middlewares/ensureAuth.js";
+import  ensureAuth  from "../middlewares/ensureAuth.js";
 
 const router = express.Router();
 

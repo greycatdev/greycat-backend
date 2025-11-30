@@ -1,7 +1,7 @@
 import express from "express";
 import Channel from "../models/Channel.js";
 import Message from "../models/Message.js";
-import { ensureAuth } from "../middlewares/ensureAuth.js";
+import ensureAuth  from "../middlewares/ensureAuth.js";
 
 const router = express.Router();
 

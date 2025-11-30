@@ -3,7 +3,7 @@ import User from "../models/User.js";
 import Post from "../models/Post.js";
 import Project from "../models/Project.js";
 import Event from "../models/Event.js";
-import { ensureAuth } from "../middlewares/ensureAuth.js";
+import  ensureAuth  from "../middlewares/ensureAuth.js";
 
 const router = express.Router();
 

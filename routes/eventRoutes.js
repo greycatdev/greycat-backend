@@ -1,7 +1,7 @@
 import express from "express";
 import Event from "../models/Event.js";
 import { uploadPost } from "../utils/upload.js";
-import { ensureAuth } from "../middlewares/ensureAuth.js";
+import  ensureAuth  from "../middlewares/ensureAuth.js";
 
 const router = express.Router();
 
