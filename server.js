@@ -108,7 +108,8 @@ app.use(
 );
 
 // Preflight
-app.options("*", (req, res) => {
+// Preflight (fixed for Express/path-to-regexp v7)
+app.options("/*", (req, res) => {
   res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.header("Access-Control-Allow-Credentials", "true");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -116,8 +117,9 @@ app.options("*", (req, res) => {
     "Access-Control-Allow-Methods",
     "GET, POST, PUT, PATCH, DELETE, OPTIONS"
   );
-  res.sendStatus(200);
+  return res.sendStatus(200);
 });
+
 
 /* ---------------------------------------------------------
    SECURITY + PERFORMANCE
