@@ -7,10 +7,8 @@ const router = express.Router();
 /* -----------------------------------------------------
    CONSTANTS: DEFAULT PROFILE PHOTO
 ----------------------------------------------------- */
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:5000";
-
-// Your image is stored in backend/public/default-image.jpg
-const DEFAULT_PHOTO = `${BACKEND_URL}/default-image.jpg`;
+// Correct → Static file served automatically by Express
+const DEFAULT_PHOTO = "/default-image.jpg";
 
 /* -----------------------------------------------------
    AUTH MIDDLEWARE (OAuth + Session Login)
@@ -116,7 +114,7 @@ router.get("/by-username/:username", async (req, res) => {
       });
     }
 
-    // fallback photo
+    // fallback default photo
     if (!user.photo) user.photo = DEFAULT_PHOTO;
 
     return res.json({ success: true, user });
@@ -163,6 +161,7 @@ router.put("/update", ensureAuth, async (req, res) => {
       { new: true }
     ).select("username name photo bio skills social location updatedAt");
 
+    // fallback default photo
     updatedUser.photo = updatedUser.photo || DEFAULT_PHOTO;
 
     return res.json({ success: true, user: updatedUser });
@@ -185,6 +184,7 @@ router.post(
         return res.json({ success: false, message: "No file uploaded" });
       }
 
+      // Cloudinary / Local / Fallback
       const imageURL =
         req.file.secure_url ||
         req.file.path ||

@@ -11,17 +11,20 @@ const router = Router();
    ENV / CONSTANTS
 -------------------------------------------------------- */
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:5000";
 
 const LOGIN_URL = `${CLIENT_URL}/login`;
 const SET_USERNAME_URL = `${CLIENT_URL}/set-username`;
 const HOME_URL = `${CLIENT_URL}/`;
 
-// IMPORTANT: Your image is inside backend/public/default-image.jpg
-const DEFAULT_PHOTO = `${BACKEND_URL}/default-image.jpg`;
+/* -------------------------------------------------------
+   DEFAULT PHOTO
+-------------------------------------------------------- */
+// Your image is in backend/public/default-image.jpg
+// Express static automatically exposes it at /default-image.jpg
+const DEFAULT_PHOTO = "/default-image.jpg";
 
 /* -------------------------------------------------------
-   SMTP (GMAIL — App Password Required)
+   SMTP EMAIL (OPTIONAL)
 -------------------------------------------------------- */
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
@@ -50,6 +53,7 @@ router.post("/signup", async (req, res) => {
 
     const cleanEmail = email.trim().toLowerCase();
     const exists = await User.findOne({ email: cleanEmail });
+
     if (exists)
       return res.json({ success: false, message: "Email already registered" });
 
@@ -60,7 +64,7 @@ router.post("/signup", async (req, res) => {
       email: cleanEmail,
       password: hashed,
       username: null,
-      photo: DEFAULT_PHOTO,
+      photo: DEFAULT_PHOTO, // <= FIXED
     });
 
     return res.json({ success: true, message: "Account created successfully" });
@@ -123,12 +127,10 @@ router.post("/forgot-password", async (req, res) => {
   try {
     const { email } = req.body;
 
-    if (!email)
-      return res.json({ success: false, message: "Email required" });
+    if (!email) return res.json({ success: false, message: "Email required" });
 
     const user = await User.findOne({ email });
-    if (!user)
-      return res.json({ success: false, message: "Email not found" });
+    if (!user) return res.json({ success: false, message: "Email not found" });
 
     if (!user.password)
       return res.json({
@@ -204,7 +206,10 @@ router.post("/reset-password/:token", async (req, res) => {
 /* -------------------------------------------------------
    5️⃣ GOOGLE AUTH
 -------------------------------------------------------- */
-router.get("/google", passport.authenticate("google", { scope: ["profile", "email"] }));
+router.get(
+  "/google",
+  passport.authenticate("google", { scope: ["profile", "email"] })
+);
 
 router.get(
   "/google/callback",
@@ -231,7 +236,10 @@ router.get(
 /* -------------------------------------------------------
    6️⃣ GITHUB AUTH
 -------------------------------------------------------- */
-router.get("/github", passport.authenticate("github", { scope: ["user:email"] }));
+router.get(
+  "/github",
+  passport.authenticate("github", { scope: ["user:email"] })
+);
 
 router.get(
   "/github/callback",

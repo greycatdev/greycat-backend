@@ -39,7 +39,6 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI;
 const CLIENT_URL = process.env.CLIENT_URL;
-const BACKEND_URL = process.env.BACKEND_URL;   // ⭐ IMPORTANT
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -78,11 +77,16 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 /* ---------------------------------------------------------
-   CORS
+   STATIC FILES  (⭐ Put BEFORE CORS)
+--------------------------------------------------------- */
+app.use(express.static(path.join(__dirname, "public")));
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+/* ---------------------------------------------------------
+   CORS  (⭐ Safe & clean)
 --------------------------------------------------------- */
 const allowedOrigins = [
   CLIENT_URL,
-  BACKEND_URL,                  // ⭐ Add backend for SSR/API calls
   "http://localhost:5173",
   "http://localhost:3000",
 ];
@@ -109,10 +113,7 @@ app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
     res.header("Access-Control-Allow-Credentials", "true");
     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.header(
-      "Access-Control-Allow-Methods",
-      "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-    );
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
     return res.sendStatus(200);
   }
   next();
@@ -137,15 +138,6 @@ app.use(
     max: 500,
   })
 );
-
-/* ---------------------------------------------------------
-   STATIC FILES
---------------------------------------------------------- */
-// serves backend/public (⭐ your default-image.jpg exists here)
-app.use(express.static(path.join(__dirname, "public")));
-
-// uploaded images
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* ---------------------------------------------------------
    BASE ROUTE
